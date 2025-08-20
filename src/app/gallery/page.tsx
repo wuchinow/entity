@@ -108,7 +108,7 @@ export default function GalleryPage() {
       const updatedSpecies = {
         ...selectedSpecies,
         image_url: data.imageUrl,
-        generation_status: 'image_generated'
+        generation_status: 'generating_video'
       };
       
       setSelectedSpecies(updatedSpecies);
@@ -257,7 +257,7 @@ export default function GalleryPage() {
             borderBottom: '1px solid rgba(255,255,255,0.1)',
             background: 'rgba(0,0,0,0.2)'
           }}>
-            <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '300' }}>
+            <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '300', marginBottom: '10px' }}>
               Extinct Species ({species.length})
             </h2>
           </div>
@@ -270,9 +270,8 @@ export default function GalleryPage() {
             {species.map((spec) => {
               const getStatusIndicator = () => {
                 if (spec.generation_status === 'completed') return { text: 'Complete', color: '#4CAF50' };
-                if (spec.generation_status === 'image_generated') return { text: 'Image', color: '#2196F3' };
+                if (spec.generation_status === 'generating_video') return { text: 'Has Image', color: '#2196F3' };
                 if (spec.generation_status === 'generating_image') return { text: 'Generating...', color: '#FF9800' };
-                if (spec.generation_status === 'generating_video') return { text: 'Generating...', color: '#FF9800' };
                 if (spec.generation_status === 'error') return { text: 'Error', color: '#f44336' };
                 return { text: 'Pending', color: '#666' };
               };
@@ -439,125 +438,64 @@ export default function GalleryPage() {
                   )}
                 </div>
 
-                {/* Media Selection and Download Buttons */}
+                {/* Media Selection Buttons */}
                 {(getBestImageUrl(selectedSpecies) || getBestVideoUrl(selectedSpecies)) && (
                   <div style={{
                     display: 'flex',
-                    gap: '10px',
+                    gap: '6px',
                     marginTop: '10px',
                     padding: '6px',
                     background: 'rgba(0,0,0,0.3)',
                     borderRadius: '8px',
                     flexShrink: 0,
-                    alignItems: 'center'
+                    justifyContent: 'center'
                   }}>
-                    {/* Media Selection Buttons */}
-                    <div style={{ display: 'flex', gap: '6px' }}>
-                      {getBestImageUrl(selectedSpecies) && (
-                        <button
-                          onClick={() => setSelectedMedia('image')}
+                    {getBestImageUrl(selectedSpecies) && (
+                      <button
+                        onClick={() => setSelectedMedia('image')}
+                        style={{
+                          width: '60px',
+                          height: '45px',
+                          border: selectedMedia === 'image' ? '2px solid #4CAF50' : '1px solid rgba(255,255,255,0.2)',
+                          borderRadius: '4px',
+                          background: 'rgba(255,255,255,0.05)',
+                          cursor: 'pointer',
+                          overflow: 'hidden',
+                          transition: 'all 0.2s ease'
+                        }}
+                      >
+                        <img
+                          src={getBestImageUrl(selectedSpecies)}
+                          alt="Image thumbnail"
                           style={{
-                            width: '60px',
-                            height: '45px',
-                            border: selectedMedia === 'image' ? '2px solid #4CAF50' : '1px solid rgba(255,255,255,0.2)',
-                            borderRadius: '4px',
-                            background: 'rgba(255,255,255,0.05)',
-                            cursor: 'pointer',
-                            overflow: 'hidden',
-                            transition: 'all 0.2s ease'
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover'
                           }}
-                        >
-                          <img
-                            src={getBestImageUrl(selectedSpecies)}
-                            alt="Image thumbnail"
-                            style={{
-                              width: '100%',
-                              height: '100%',
-                              objectFit: 'cover'
-                            }}
-                          />
-                        </button>
-                      )}
-                      {getBestVideoUrl(selectedSpecies) && (
-                        <button
-                          onClick={() => setSelectedMedia('video')}
-                          style={{
-                            width: '60px',
-                            height: '45px',
-                            border: selectedMedia === 'video' ? '2px solid #4CAF50' : '1px solid rgba(255,255,255,0.2)',
-                            borderRadius: '4px',
-                            background: 'rgba(255,255,255,0.1)',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: '16px',
-                            color: '#fff',
-                            transition: 'all 0.2s ease'
-                          }}
-                        >
-                          ▶
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Download Buttons */}
-                    <div style={{ display: 'flex', gap: '6px', marginLeft: '10px' }}>
-                      {getBestImageUrl(selectedSpecies) && (
-                        <button
-                          onClick={() => downloadMedia(
-                            getBestImageUrl(selectedSpecies)!,
-                            `${selectedSpecies.common_name.replace(/[^a-zA-Z0-9]/g, '_')}_image.jpg`
-                          )}
-                          style={{
-                            padding: '8px 12px',
-                            background: 'rgba(76, 175, 80, 0.2)',
-                            border: '1px solid rgba(76, 175, 80, 0.5)',
-                            borderRadius: '4px',
-                            color: '#4CAF50',
-                            cursor: 'pointer',
-                            fontSize: '12px',
-                            fontWeight: '500',
-                            transition: 'all 0.2s ease'
-                          }}
-                          onMouseOver={(e) => {
-                            e.currentTarget.style.background = 'rgba(76, 175, 80, 0.3)';
-                          }}
-                          onMouseOut={(e) => {
-                            e.currentTarget.style.background = 'rgba(76, 175, 80, 0.2)';
-                          }}
-                        >
-                          📥 Image
-                        </button>
-                      )}
-                      {getBestVideoUrl(selectedSpecies) && (
-                        <button
-                          onClick={() => downloadMedia(
-                            getBestVideoUrl(selectedSpecies)!,
-                            `${selectedSpecies.common_name.replace(/[^a-zA-Z0-9]/g, '_')}_video.mp4`
-                          )}
-                          style={{
-                            padding: '8px 12px',
-                            background: 'rgba(33, 150, 243, 0.2)',
-                            border: '1px solid rgba(33, 150, 243, 0.5)',
-                            borderRadius: '4px',
-                            color: '#2196F3',
-                            cursor: 'pointer',
-                            fontSize: '12px',
-                            fontWeight: '500',
-                            transition: 'all 0.2s ease'
-                          }}
-                          onMouseOver={(e) => {
-                            e.currentTarget.style.background = 'rgba(33, 150, 243, 0.3)';
-                          }}
-                          onMouseOut={(e) => {
-                            e.currentTarget.style.background = 'rgba(33, 150, 243, 0.2)';
-                          }}
-                        >
-                          📥 Video
-                        </button>
-                      )}
-                    </div>
+                        />
+                      </button>
+                    )}
+                    {getBestVideoUrl(selectedSpecies) && (
+                      <button
+                        onClick={() => setSelectedMedia('video')}
+                        style={{
+                          width: '60px',
+                          height: '45px',
+                          border: selectedMedia === 'video' ? '2px solid #4CAF50' : '1px solid rgba(255,255,255,0.2)',
+                          borderRadius: '4px',
+                          background: 'rgba(255,255,255,0.1)',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '16px',
+                          color: '#fff',
+                          transition: 'all 0.2s ease'
+                        }}
+                      >
+                        ▶
+                      </button>
+                    )}
                   </div>
                 )}
               </div>

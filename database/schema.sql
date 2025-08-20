@@ -66,7 +66,9 @@ BEGIN
     NEW.updated_at = NOW();
     RETURN NEW;
 END;
-$$ language 'plpgsql';
+$$ LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public;
 
 -- Create triggers for updated_at
 CREATE TRIGGER update_species_updated_at BEFORE UPDATE ON species
@@ -118,37 +120,46 @@ BEGIN
     
     RETURN result;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public;
 
 -- Create a function to reset all generation status (for testing)
 CREATE OR REPLACE FUNCTION reset_generation_status()
 RETURNS VOID AS $$
 BEGIN
-    UPDATE species SET 
+    UPDATE species SET
         generation_status = 'pending',
         image_url = NULL,
         video_url = NULL,
+        supabase_image_path = NULL,
+        supabase_video_path = NULL,
+        supabase_image_url = NULL,
+        supabase_video_url = NULL,
         image_generated_at = NULL,
         video_generated_at = NULL;
     
     DELETE FROM generation_queue;
     
-    UPDATE system_state SET 
+    UPDATE system_state SET
         completed_species = 0,
         is_cycling = false,
         current_species_id = NULL,
         cycle_started_at = NULL;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public;
 
 -- Insert initial system state record
 INSERT INTO system_state (total_species, completed_species, is_cycling)
 VALUES (0, 0, false)
 ON CONFLICT DO NOTHING;
 
--- Create a view for admin dashboard
-CREATE OR REPLACE VIEW admin_dashboard AS
-SELECT 
+-- Create a view for admin dashboard with SECURITY INVOKER
+CREATE OR REPLACE VIEW admin_dashboard
+WITH (security_invoker = on) AS
+SELECT
     s.*,
     ss.is_cycling,
     ss.current_species_id = s.id as is_current,

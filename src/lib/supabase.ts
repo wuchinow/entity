@@ -1,9 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 import { Species, GenerationQueue, SystemState } from '@/types';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
   console.error('Missing Supabase environment variables:', {
@@ -13,11 +13,15 @@ if (!supabaseUrl || !supabaseAnonKey) {
   });
 }
 
-// Client for frontend operations
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Client for frontend operations - only create if we have valid credentials
+export const supabase = supabaseUrl && supabaseAnonKey
+  ? createClient(supabaseUrl, supabaseAnonKey)
+  : null;
 
-// Admin client for server-side operations
-export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+// Admin client for server-side operations - only create if we have valid credentials
+export const supabaseAdmin = supabaseUrl && supabaseServiceKey
+  ? createClient(supabaseUrl, supabaseServiceKey)
+  : null;
 
 // Database table names
 export const TABLES = {
@@ -30,6 +34,11 @@ export const TABLES = {
 export class SupabaseService {
   // Species operations
   static async getAllSpecies(): Promise<Species[]> {
+    if (!supabase) {
+      console.error('Supabase client not initialized');
+      return [];
+    }
+    
     const { data, error } = await supabase
       .from(TABLES.SPECIES)
       .select('*')
@@ -40,6 +49,11 @@ export class SupabaseService {
   }
 
   static async getSpeciesById(id: string): Promise<Species | null> {
+    if (!supabase) {
+      console.error('Supabase client not initialized');
+      return null;
+    }
+    
     const { data, error } = await supabase
       .from(TABLES.SPECIES)
       .select('*')
@@ -51,6 +65,10 @@ export class SupabaseService {
   }
 
   static async updateSpecies(id: string, updates: Partial<Species>): Promise<Species> {
+    if (!supabaseAdmin) {
+      throw new Error('Supabase admin client not initialized');
+    }
+    
     const { data, error } = await supabaseAdmin
       .from(TABLES.SPECIES)
       .update(updates)
@@ -63,6 +81,10 @@ export class SupabaseService {
   }
 
   static async insertSpecies(species: Omit<Species, 'id' | 'created_at'>[]): Promise<Species[]> {
+    if (!supabaseAdmin) {
+      throw new Error('Supabase admin client not initialized');
+    }
+    
     const { data, error } = await supabaseAdmin
       .from(TABLES.SPECIES)
       .insert(species)
@@ -73,6 +95,10 @@ export class SupabaseService {
   }
 
   static async deleteAllSpecies(): Promise<void> {
+    if (!supabaseAdmin) {
+      throw new Error('Supabase admin client not initialized');
+    }
+    
     const { error } = await supabaseAdmin
       .from(TABLES.SPECIES)
       .delete()
@@ -83,6 +109,10 @@ export class SupabaseService {
 
   // Generation queue operations
   static async addToQueue(queueItem: Omit<GenerationQueue, 'id'>): Promise<GenerationQueue> {
+    if (!supabaseAdmin) {
+      throw new Error('Supabase admin client not initialized');
+    }
+    
     const { data, error } = await supabaseAdmin
       .from(TABLES.GENERATION_QUEUE)
       .insert(queueItem)
@@ -94,6 +124,11 @@ export class SupabaseService {
   }
 
   static async getQueuedItems(): Promise<GenerationQueue[]> {
+    if (!supabase) {
+      console.error('Supabase client not initialized');
+      return [];
+    }
+    
     const { data, error } = await supabase
       .from(TABLES.GENERATION_QUEUE)
       .select('*')
@@ -105,6 +140,10 @@ export class SupabaseService {
   }
 
   static async updateQueueItem(id: string, updates: Partial<GenerationQueue>): Promise<GenerationQueue> {
+    if (!supabaseAdmin) {
+      throw new Error('Supabase admin client not initialized');
+    }
+    
     const { data, error } = await supabaseAdmin
       .from(TABLES.GENERATION_QUEUE)
       .update(updates)
@@ -118,6 +157,11 @@ export class SupabaseService {
 
   // System state operations
   static async getSystemState(): Promise<SystemState | null> {
+    if (!supabase) {
+      console.error('Supabase client not initialized');
+      return null;
+    }
+    
     const { data, error } = await supabase
       .from(TABLES.SYSTEM_STATE)
       .select('*')
@@ -129,6 +173,10 @@ export class SupabaseService {
   }
 
   static async updateSystemState(updates: Partial<SystemState>): Promise<SystemState> {
+    if (!supabaseAdmin) {
+      throw new Error('Supabase admin client not initialized');
+    }
+    
     const existingState = await this.getSystemState();
     
     if (existingState) {
@@ -161,9 +209,14 @@ export class SupabaseService {
 
   // Real-time subscriptions
   static subscribeToSpecies(callback: (payload: any) => void) {
+    if (!supabase) {
+      console.error('Supabase client not initialized');
+      return { unsubscribe: () => {} };
+    }
+    
     return supabase
       .channel('species-changes')
-      .on('postgres_changes', 
+      .on('postgres_changes',
         { event: '*', schema: 'public', table: TABLES.SPECIES },
         callback
       )
@@ -171,6 +224,11 @@ export class SupabaseService {
   }
 
   static subscribeToSystemState(callback: (payload: any) => void) {
+    if (!supabase) {
+      console.error('Supabase client not initialized');
+      return { unsubscribe: () => {} };
+    }
+    
     return supabase
       .channel('system-state-changes')
       .on('postgres_changes',

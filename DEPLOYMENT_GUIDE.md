@@ -23,12 +23,32 @@ Before deploying to production, ensure you have:
    # Note down the project URL and keys
    ```
 
-2. **Run Database Schema**
+2. **Apply Database Schema**
+   
+   **⚠️ CRITICAL: Choose the correct option based on your situation:**
+   
+   **Option A: Fresh Database (New Project)**
    - Go to Supabase SQL Editor
    - Copy and paste contents of `database/schema.sql`
    - Execute the SQL to create all tables and functions
+   
+   **Option B: Existing Database (Has Species Data)**
+   - Go to Supabase SQL Editor
+   - Copy and paste contents of `database/migration_add_storage_columns.sql`
+   - Execute the migration to add storage columns
+   - Run `database/verify_migration.sql` to confirm success
+   - See `database/MIGRATION_GUIDE.md` for detailed instructions
 
-3. **Initialize Storage Bucket**
+3. **Verify Database Migration**
+   - Ensure these columns exist in the `species` table:
+     - `supabase_image_path`
+     - `supabase_video_path`
+     - `supabase_image_url`
+     - `supabase_video_url`
+     - `generation_status`
+   - **Without these columns, the app will fail with "column not found" errors**
+
+4. **Initialize Storage Bucket**
    - The app will automatically create the storage bucket on first run
    - Or manually create via admin panel: `/admin` → "Initialize Storage"
 

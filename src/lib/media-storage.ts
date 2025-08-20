@@ -10,16 +10,20 @@ export class MediaStorageService {
    */
   static async initializeBucket(): Promise<void> {
     try {
+      if (!supabaseAdmin) {
+        throw new Error('Supabase admin client not initialized');
+      }
+      
       // Check if bucket exists
       const { data: buckets } = await supabaseAdmin.storage.listBuckets();
       const bucketExists = buckets?.some(bucket => bucket.name === this.BUCKET_NAME);
 
       if (!bucketExists) {
-        // Create bucket
+        // Create bucket with no file size limit to avoid 413 errors
         const { error: createError } = await supabaseAdmin.storage.createBucket(this.BUCKET_NAME, {
           public: true,
-          allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/webm'],
-          fileSizeLimit: 100 * 1024 * 1024 // 100MB limit
+          allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/webm']
+          // Removed fileSizeLimit to use Supabase default limits
         });
 
         if (createError) {
@@ -45,6 +49,9 @@ export class MediaStorageService {
     commonName: string
   ): Promise<{ path: string; publicUrl: string }> {
     try {
+      // Auto-initialize bucket on first use
+      await this.initializeBucket();
+
       // Download the file from the URL
       console.log(`Downloading ${type} from:`, url);
       const response = await fetch(url);
@@ -78,6 +85,10 @@ export class MediaStorageService {
       const fileName = `${sanitizedName}_${speciesId.slice(0, 8)}_${timestamp}${extension}`;
       const filePath = `${folder}/${fileName}`;
 
+      if (!supabaseAdmin) {
+        throw new Error('Supabase admin client not initialized');
+      }
+      
       // Upload to Supabase Storage
       console.log(`Uploading ${type} to:`, filePath);
       const { error: uploadError } = await supabaseAdmin.storage
@@ -115,6 +126,10 @@ export class MediaStorageService {
    */
   static async deleteFile(filePath: string): Promise<void> {
     try {
+      if (!supabaseAdmin) {
+        throw new Error('Supabase admin client not initialized');
+      }
+      
       const { error } = await supabaseAdmin.storage
         .from(this.BUCKET_NAME)
         .remove([filePath]);
@@ -135,6 +150,10 @@ export class MediaStorageService {
    * Get public URL for a stored file
    */
   static getPublicUrl(filePath: string): string {
+    if (!supabaseAdmin) {
+      throw new Error('Supabase admin client not initialized');
+    }
+    
     const { data } = supabaseAdmin.storage
       .from(this.BUCKET_NAME)
       .getPublicUrl(filePath);
@@ -147,6 +166,10 @@ export class MediaStorageService {
    */
   static async fileExists(filePath: string): Promise<boolean> {
     try {
+      if (!supabaseAdmin) {
+        return false;
+      }
+      
       const { data, error } = await supabaseAdmin.storage
         .from(this.BUCKET_NAME)
         .list(filePath.split('/').slice(0, -1).join('/'));
@@ -170,6 +193,10 @@ export class MediaStorageService {
     videoCount: number;
   }> {
     try {
+      if (!supabaseAdmin) {
+        throw new Error('Supabase admin client not initialized');
+      }
+      
       const { data: imageFiles } = await supabaseAdmin.storage
         .from(this.BUCKET_NAME)
         .list(this.IMAGE_FOLDER);

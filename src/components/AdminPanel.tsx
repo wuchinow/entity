@@ -40,8 +40,14 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
   const loadAdminData = async () => {
     try {
       const [state, species] = await Promise.all([
-        SupabaseService.getSystemState(),
-        SupabaseService.getAllSpecies()
+        SupabaseService.getSystemState().catch(err => {
+          console.warn('Failed to load system state:', err);
+          return null;
+        }),
+        SupabaseService.getAllSpecies().catch(err => {
+          console.warn('Failed to load species:', err);
+          return [];
+        })
       ]);
       
       setSystemState(state);
@@ -61,6 +67,16 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
       await loadStorageStats();
     } catch (error) {
       console.error('Error loading admin data:', error);
+      // Set default values so the component still renders
+      setSystemState(null);
+      setAllSpecies([]);
+      setAdminState(prev => ({
+        ...prev,
+        generationStatus: {
+          queueLength: 0,
+          isGenerating: false,
+        }
+      }));
     }
   };
 
@@ -76,40 +92,25 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
     }
   };
 
-  const handleInitializeStorage = async () => {
-    try {
-      setUploadMessage('Initializing Supabase Storage...');
-      const response = await fetch('/api/admin/init-storage', {
-        method: 'POST',
-      });
-      
-      const data = await response.json();
-      
-      if (data.success) {
-        setUploadMessage('Storage initialized successfully!');
-        setStorageStats(data.stats);
-      } else {
-        setUploadMessage(`Storage initialization failed: ${data.details}`);
-      }
-    } catch (error) {
-      console.error('Error initializing storage:', error);
-      setUploadMessage('Error initializing storage');
-    }
-  };
 
   const setupRealtimeSubscriptions = () => {
-    const speciesSubscription = SupabaseService.subscribeToSpecies(() => {
-      loadAdminData();
-    });
+    try {
+      const speciesSubscription = SupabaseService.subscribeToSpecies(() => {
+        loadAdminData();
+      });
 
-    const systemSubscription = SupabaseService.subscribeToSystemState(() => {
-      loadAdminData();
-    });
+      const systemSubscription = SupabaseService.subscribeToSystemState(() => {
+        loadAdminData();
+      });
 
-    return () => {
-      speciesSubscription.unsubscribe();
-      systemSubscription.unsubscribe();
-    };
+      return () => {
+        speciesSubscription.unsubscribe();
+        systemSubscription.unsubscribe();
+      };
+    } catch (error) {
+      console.warn('Failed to setup realtime subscriptions:', error);
+      return () => {}; // Return empty cleanup function
+    }
   };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -247,6 +248,17 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
           </button>
         </div>
 
+        {/* Debug Info */}
+        <div className="bg-red-900 bg-opacity-50 p-4 rounded mb-6">
+          <h3 className="text-lg font-semibold mb-2">Debug Info</h3>
+          <div className="text-sm space-y-1">
+            <div>Admin Panel is rendering successfully!</div>
+            <div>System State: {systemState ? 'Loaded' : 'Not loaded'}</div>
+            <div>Species Count: {allSpecies.length}</div>
+            <div>Storage Stats: {storageStats ? 'Loaded' : 'Not loaded'}</div>
+          </div>
+        </div>
+
         {/* System Status */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           <div className="bg-gray-800 p-4 rounded">
@@ -272,15 +284,7 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
 
         {/* Storage Status */}
         <div className="bg-gray-800 p-4 rounded mb-6">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-semibold">Storage Status</h3>
-            <button
-              onClick={handleInitializeStorage}
-              className="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded text-sm transition-colors"
-            >
-              Initialize Storage
-            </button>
-          </div>
+          <h3 className="text-lg font-semibold mb-4">Storage Status</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
             <div>
               <span className="text-gray-400">Images Stored:</span>
@@ -294,6 +298,9 @@ export default function AdminPanel({ onClose }: AdminPanelProps) {
               <span className="text-gray-400">Total Files:</span>
               <span className="ml-2 font-semibold">{storageStats?.totalFiles || 0}</span>
             </div>
+          </div>
+          <div className="text-xs text-gray-500 mt-2">
+            Storage bucket initializes automatically on first use
           </div>
         </div>
 

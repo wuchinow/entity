@@ -102,13 +102,15 @@ export async function POST(request: NextRequest) {
       });
     } catch (storageError) {
       console.error('Error storing image in Supabase Storage:', storageError);
-      // Continue with Replicate URL as fallback
+      console.log('Continuing with Replicate URL as fallback...');
+      // Continue with Replicate URL as fallback - this is expected if bucket doesn't exist yet
     }
 
     // Update species with both Replicate and Supabase URLs
     const updateData: any = {
       image_url: imageUrl,
-      generation_status: 'image_generated',
+      generation_status: 'generating_video', // Next step after image is generated
+      image_generated_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
 
