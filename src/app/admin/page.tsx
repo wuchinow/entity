@@ -58,8 +58,8 @@ export default function AdminPage() {
       // Load species data
       const speciesResponse = await fetch('/api/species');
       const speciesData = await speciesResponse.json();
-      if (Array.isArray(speciesData)) {
-        setSpecies(speciesData);
+      if (speciesData.species && Array.isArray(speciesData.species)) {
+        setSpecies(speciesData.species);
       }
     } catch (error) {
       console.error('Error loading data:', error);
