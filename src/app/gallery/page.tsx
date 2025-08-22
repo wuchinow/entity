@@ -22,7 +22,12 @@ export default function GalleryPage() {
   const [species, setSpecies] = useState<Species[]>([]);
   const [selectedSpecies, setSelectedSpecies] = useState<Species | null>(null);
   const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState<'image' | 'video' | null>(null);
+  const [generatingStates, setGeneratingStates] = useState<{
+    [speciesId: string]: {
+      image: boolean;
+      video: boolean;
+    }
+  }>({});
   const [message, setMessage] = useState('');
   const [selectedMedia, setSelectedMedia] = useState<'image' | 'video'>('image');
   const [mounted, setMounted] = useState(false);
@@ -128,7 +133,20 @@ export default function GalleryPage() {
   const generateImage = async () => {
     if (!selectedSpecies) return;
     
-    setGenerating('image');
+    // Check if already generating for this species
+    if (generatingStates[selectedSpecies.id]?.image) {
+      console.log('Image generation already in progress for this species');
+      return;
+    }
+    
+    setGeneratingStates(prev => ({
+      ...prev,
+      [selectedSpecies.id]: {
+        ...prev[selectedSpecies.id],
+        image: true,
+        video: prev[selectedSpecies.id]?.video || false
+      }
+    }));
     
     try {
       const response = await fetch('/api/generate/image', {
@@ -142,6 +160,11 @@ export default function GalleryPage() {
       const data = await response.json();
       
       if (data.error) {
+        // Handle duplicate request gracefully
+        if (data.status === 'duplicate_request' || data.status === 'race_condition') {
+          console.log('Generation already in progress:', data.error);
+          return; // Silently ignore duplicate requests
+        }
         throw new Error(data.error);
       }
       
@@ -165,14 +188,34 @@ export default function GalleryPage() {
     } catch (error) {
       console.error('Error generating image:', error);
     } finally {
-      setGenerating(null);
+      setGeneratingStates(prev => ({
+        ...prev,
+        [selectedSpecies.id]: {
+          ...prev[selectedSpecies.id],
+          image: false,
+          video: prev[selectedSpecies.id]?.video || false
+        }
+      }));
     }
   };
 
   const generateVideo = async () => {
     if (!selectedSpecies) return;
     
-    setGenerating('video');
+    // Check if already generating for this species
+    if (generatingStates[selectedSpecies.id]?.video) {
+      console.log('Video generation already in progress for this species');
+      return;
+    }
+    
+    setGeneratingStates(prev => ({
+      ...prev,
+      [selectedSpecies.id]: {
+        ...prev[selectedSpecies.id],
+        image: prev[selectedSpecies.id]?.image || false,
+        video: true
+      }
+    }));
     
     try {
       // Use the best available image URL (prefer Supabase over Replicate)
@@ -198,6 +241,11 @@ export default function GalleryPage() {
       const data = await response.json();
       
       if (data.error) {
+        // Handle duplicate request gracefully
+        if (data.status === 'duplicate_request' || data.status === 'race_condition') {
+          console.log('Generation already in progress:', data.error);
+          return; // Silently ignore duplicate requests
+        }
         throw new Error(data.error);
       }
       
@@ -223,7 +271,14 @@ export default function GalleryPage() {
     } catch (error) {
       console.error('Video generation error:', error);
     } finally {
-      setGenerating(null);
+      setGeneratingStates(prev => ({
+        ...prev,
+        [selectedSpecies.id]: {
+          ...prev[selectedSpecies.id],
+          image: prev[selectedSpecies.id]?.image || false,
+          video: false
+        }
+      }));
     }
   };
 
@@ -654,47 +709,47 @@ export default function GalleryPage() {
               }}>
                 <button
                   onClick={generateImage}
-                  disabled={generating !== null}
+                  disabled={generatingStates[selectedSpecies.id]?.image || false}
                   style={{
-                    background: generating === 'image'
+                    background: generatingStates[selectedSpecies.id]?.image
                       ? 'rgba(255,255,255,0.1)'
                       : 'rgba(255,255,255,0.05)',
-                    color: generating === 'image' ? '#ccc' : '#fff',
+                    color: generatingStates[selectedSpecies.id]?.image ? '#ccc' : '#fff',
                     border: '1px solid rgba(255,255,255,0.2)',
                     padding: '12px 24px',
                     borderRadius: '6px',
                     fontSize: '14px',
-                    cursor: generating !== null ? 'not-allowed' : 'pointer',
+                    cursor: generatingStates[selectedSpecies.id]?.image ? 'not-allowed' : 'pointer',
                     fontWeight: '400',
                     transition: 'all 0.2s ease',
                     fontFamily: 'inherit',
                     width: '140px'
                   }}
                 >
-                  {generating === 'image' ? 'Generating...' : getBestImageUrl(selectedSpecies) ? 'New Image' : 'Generate Image'}
+                  {generatingStates[selectedSpecies.id]?.image ? 'Generating...' : getBestImageUrl(selectedSpecies) ? 'New Image' : 'Generate Image'}
                 </button>
 
                 {getBestImageUrl(selectedSpecies) && (
                   <button
                     onClick={generateVideo}
-                    disabled={generating !== null}
+                    disabled={generatingStates[selectedSpecies.id]?.video || false}
                     style={{
-                      background: generating === 'video'
+                      background: generatingStates[selectedSpecies.id]?.video
                         ? 'rgba(255,255,255,0.1)'
                         : 'rgba(255,255,255,0.05)',
-                      color: generating === 'video' ? '#ccc' : '#fff',
+                      color: generatingStates[selectedSpecies.id]?.video ? '#ccc' : '#fff',
                       border: '1px solid rgba(255,255,255,0.2)',
                       padding: '12px 24px',
                       borderRadius: '6px',
                       fontSize: '14px',
-                      cursor: generating !== null ? 'not-allowed' : 'pointer',
+                      cursor: generatingStates[selectedSpecies.id]?.video ? 'not-allowed' : 'pointer',
                       fontWeight: '400',
                       transition: 'all 0.2s ease',
                       fontFamily: 'inherit',
                       width: '140px'
                     }}
                   >
-                    {generating === 'video' ? 'Generating...' : getBestVideoUrl(selectedSpecies) ? 'New Video' : 'Generate Video'}
+                    {generatingStates[selectedSpecies.id]?.video ? 'Generating...' : getBestVideoUrl(selectedSpecies) ? 'New Video' : 'Generate Video'}
                   </button>
                 )}
               </div>

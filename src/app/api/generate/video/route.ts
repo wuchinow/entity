@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Image URL is required for video generation' }, { status: 400 });
     }
 
-    // Get species data for name/info
+    // Get species data for name/info and check current status
     const { data: species, error: speciesError } = await supabase
       .from('species')
       .select('*')
@@ -39,11 +39,31 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Species not found' }, { status: 404 });
     }
 
-    // Update status to generating
-    await supabase
+    // Prevent duplicate requests - check if already generating video
+    if (species.generation_status === 'generating_video') {
+      return NextResponse.json({
+        error: 'Video generation already in progress for this species',
+        status: 'duplicate_request'
+      }, { status: 409 });
+    }
+
+    // Atomic update to prevent race conditions
+    const { data: updateResult, error: updateError } = await supabase
       .from('species')
-      .update({ generation_status: 'generating_video' })
-      .eq('id', speciesId);
+      .update({
+        generation_status: 'generating_video',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', speciesId)
+      .eq('generation_status', species.generation_status) // Only update if status hasn't changed
+      .select();
+
+    if (updateError || !updateResult || updateResult.length === 0) {
+      return NextResponse.json({
+        error: 'Another generation request is already in progress',
+        status: 'race_condition'
+      }, { status: 409 });
+    }
 
     console.log('Generating video for species:', species.common_name);
     console.log('Using image URL:', imageUrl);
@@ -143,8 +163,11 @@ export async function POST(request: NextRequest) {
       }, { status: 500 });
     }
 
-    // Add new media to history and set as current using the new function
+    // Try to use new media history system, fall back to legacy if not available
+    let updateSuccessful = false;
+    
     try {
+      // First try the new media history system
       const { data: mediaResult, error: mediaError } = await supabase
         .rpc('add_species_media', {
           p_species_id: speciesId,
@@ -155,43 +178,21 @@ export async function POST(request: NextRequest) {
           p_replicate_prediction_id: prediction.id
         });
 
-      if (mediaError) {
-        console.error('Error adding media to history:', mediaError);
-        // Fall back to direct update for backward compatibility
-        const updateData: any = {
-          video_url: videoUrl,
-          current_video_url: videoUrl,
-          generation_status: 'completed',
-          video_generated_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-
-        if (supabaseVideoPath && supabaseVideoUrl) {
-          updateData.supabase_video_path = supabaseVideoPath;
-          updateData.supabase_video_url = supabaseVideoUrl;
-          updateData.current_supabase_video_url = supabaseVideoUrl;
-          updateData.current_supabase_video_path = supabaseVideoPath;
-        }
-
-        const { error: updateError } = await supabase
-          .from('species')
-          .update(updateData)
-          .eq('id', speciesId);
-
-        if (updateError) {
-          console.error('Error updating species with video:', updateError);
-          return NextResponse.json({ error: 'Failed to save video' }, { status: 500 });
-        }
-      } else {
-        // Update generation status since the RPC function handles media updates
+      if (!mediaError) {
+        // Success with new system
         await supabase
           .from('species')
           .update({ generation_status: 'completed' })
           .eq('id', speciesId);
+        updateSuccessful = true;
+        console.log('✅ Used new media history system');
       }
     } catch (rpcError) {
-      console.error('RPC function not available, using fallback:', rpcError);
-      // Fallback to direct update if RPC function doesn't exist yet
+      console.log('📝 New media system not available, using legacy update');
+    }
+
+    // If new system failed, use legacy update
+    if (!updateSuccessful) {
       const updateData: any = {
         video_url: videoUrl,
         generation_status: 'completed',
@@ -213,6 +214,7 @@ export async function POST(request: NextRequest) {
         console.error('Error updating species with video:', updateError);
         return NextResponse.json({ error: 'Failed to save video' }, { status: 500 });
       }
+      console.log('✅ Used legacy update system');
     }
 
     return NextResponse.json({
