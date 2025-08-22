@@ -1,6 +1,5 @@
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   // Remove static export configuration for Vercel deployment
   images: {
     domains: ['replicate.delivery', 'otkvdkbqsmrxzxyojlis.supabase.co'],
@@ -17,4 +16,4 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+module.exports = nextConfig;
