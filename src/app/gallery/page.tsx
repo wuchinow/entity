@@ -414,12 +414,12 @@ export default function GalleryPage() {
                         </div>
                       )}
                       
-                      {/* Thumbnails in fixed container - Image above Video */}
+                      {/* Thumbnails in fixed container - Image above Video with padding */}
                       {(getBestImageUrl(spec) || getBestVideoUrl(spec)) && (
                         <div style={{
                           display: 'flex',
                           flexDirection: 'column',
-                          gap: '2px',
+                          gap: '4px',
                           alignItems: 'flex-end'
                         }}>
                           {getBestImageUrl(spec) && (
@@ -427,10 +427,10 @@ export default function GalleryPage() {
                               src={getBestImageUrl(spec)}
                               alt={`${spec.common_name} thumbnail`}
                               style={{
-                                width: '28px',
-                                height: '18px',
+                                width: '35px',
+                                height: '24px',
                                 objectFit: 'cover',
-                                borderRadius: '2px',
+                                borderRadius: '3px',
                                 border: '1px solid rgba(255,255,255,0.2)'
                               }}
                             />
@@ -438,9 +438,9 @@ export default function GalleryPage() {
                           {getBestVideoUrl(spec) && (
                             <div style={{
                               position: 'relative',
-                              width: '28px',
-                              height: '18px',
-                              borderRadius: '2px',
+                              width: '35px',
+                              height: '24px',
+                              borderRadius: '3px',
                               border: '1px solid rgba(255,255,255,0.2)',
                               overflow: 'hidden'
                             }}>
@@ -459,8 +459,8 @@ export default function GalleryPage() {
                                 left: '50%',
                                 transform: 'translate(-50%, -50%)',
                                 color: 'white',
-                                fontSize: '8px',
-                                textShadow: '0 0 2px rgba(0,0,0,0.8)',
+                                fontSize: '10px',
+                                textShadow: '0 0 3px rgba(0,0,0,0.8)',
                                 pointerEvents: 'none'
                               }}>
                                 ▶
@@ -556,82 +556,85 @@ export default function GalleryPage() {
                     marginTop: '10px',
                     alignItems: 'center'
                   }}>
-                    {/* Media Selection Buttons - Image above Video */}
+                    {/* Media Selection Buttons - Side by Side with thumbnails over buttons */}
                     <div style={{
                       display: 'flex',
                       flexDirection: 'column',
-                      gap: '6px',
-                      padding: '6px',
-                      background: 'rgba(0,0,0,0.3)',
-                      borderRadius: '8px',
-                      flexShrink: 0,
+                      gap: '8px',
                       alignItems: 'center'
                     }}>
-                      {getBestImageUrl(selectedSpecies) && (
-                        <button
-                          onClick={() => setSelectedMedia('image')}
-                          style={{
-                            width: '60px',
-                            height: '40px',
-                            border: selectedMedia === 'image' ? '2px solid #4CAF50' : '1px solid rgba(255,255,255,0.2)',
-                            borderRadius: '4px',
-                            background: 'rgba(255,255,255,0.05)',
-                            cursor: 'pointer',
-                            overflow: 'hidden',
-                            transition: 'all 0.2s ease',
-                            padding: 0
-                          }}
-                        >
-                          <img
-                            src={getBestImageUrl(selectedSpecies)}
-                            alt="Image thumbnail"
+                      {/* Thumbnails positioned over buttons */}
+                      <div style={{
+                        display: 'flex',
+                        gap: '12px',
+                        justifyContent: 'center'
+                      }}>
+                        {getBestImageUrl(selectedSpecies) && (
+                          <button
+                            onClick={() => setSelectedMedia('image')}
                             style={{
-                              width: '100%',
-                              height: '100%',
-                              objectFit: 'cover'
+                              width: '80px',
+                              height: '55px',
+                              border: selectedMedia === 'image' ? '2px solid #4CAF50' : '1px solid rgba(255,255,255,0.2)',
+                              borderRadius: '6px',
+                              background: 'rgba(255,255,255,0.05)',
+                              cursor: 'pointer',
+                              overflow: 'hidden',
+                              transition: 'all 0.2s ease',
+                              padding: 0
                             }}
-                          />
-                        </button>
-                      )}
-                      {getBestVideoUrl(selectedSpecies) && (
-                        <button
-                          onClick={() => setSelectedMedia('video')}
-                          style={{
-                            width: '60px',
-                            height: '40px',
-                            border: selectedMedia === 'video' ? '2px solid #4CAF50' : '1px solid rgba(255,255,255,0.2)',
-                            borderRadius: '4px',
-                            background: 'rgba(255,255,255,0.05)',
-                            cursor: 'pointer',
-                            overflow: 'hidden',
-                            transition: 'all 0.2s ease',
-                            padding: 0,
-                            position: 'relative'
-                          }}
-                        >
-                          <video
-                            src={getBestVideoUrl(selectedSpecies)}
-                            muted
+                          >
+                            <img
+                              src={getBestImageUrl(selectedSpecies)}
+                              alt="Image thumbnail"
+                              style={{
+                                width: '100%',
+                                height: '100%',
+                                objectFit: 'cover'
+                              }}
+                            />
+                          </button>
+                        )}
+                        {getBestVideoUrl(selectedSpecies) && (
+                          <button
+                            onClick={() => setSelectedMedia('video')}
                             style={{
-                              width: '100%',
-                              height: '100%',
-                              objectFit: 'cover'
+                              width: '80px',
+                              height: '55px',
+                              border: selectedMedia === 'video' ? '2px solid #4CAF50' : '1px solid rgba(255,255,255,0.2)',
+                              borderRadius: '6px',
+                              background: 'rgba(255,255,255,0.05)',
+                              cursor: 'pointer',
+                              overflow: 'hidden',
+                              transition: 'all 0.2s ease',
+                              padding: 0,
+                              position: 'relative'
                             }}
-                          />
-                          <div style={{
-                            position: 'absolute',
-                            top: '50%',
-                            left: '50%',
-                            transform: 'translate(-50%, -50%)',
-                            color: 'white',
-                            fontSize: '14px',
-                            textShadow: '0 0 4px rgba(0,0,0,0.8)',
-                            pointerEvents: 'none'
-                          }}>
-                            ▶
-                          </div>
-                        </button>
-                      )}
+                          >
+                            <video
+                              src={getBestVideoUrl(selectedSpecies)}
+                              muted
+                              style={{
+                                width: '100%',
+                                height: '100%',
+                                objectFit: 'cover'
+                              }}
+                            />
+                            <div style={{
+                              position: 'absolute',
+                              top: '50%',
+                              left: '50%',
+                              transform: 'translate(-50%, -50%)',
+                              color: 'white',
+                              fontSize: '18px',
+                              textShadow: '0 0 6px rgba(0,0,0,0.8)',
+                              pointerEvents: 'none'
+                            }}>
+                              ▶
+                            </div>
+                          </button>
+                        )}
+                      </div>
                     </div>
                     
                     {/* Download buttons hidden - users can drag images or use video controls */}
@@ -639,11 +642,11 @@ export default function GalleryPage() {
                 )}
               </div>
 
-              {/* Generate buttons centered under media */}
+              {/* Generate buttons positioned under thumbnails */}
               <div style={{
                 display: 'flex',
                 justifyContent: 'center',
-                gap: '15px',
+                gap: '12px',
                 padding: '20px',
                 borderTop: '1px solid rgba(255,255,255,0.1)',
                 background: 'rgba(0,0,0,0.2)',
@@ -665,10 +668,10 @@ export default function GalleryPage() {
                     fontWeight: '400',
                     transition: 'all 0.2s ease',
                     fontFamily: 'inherit',
-                    minWidth: '140px'
+                    width: '140px'
                   }}
                 >
-                  {generating === 'image' ? 'Generating...' : 'Generate Image'}
+                  {generating === 'image' ? 'Generating...' : getBestImageUrl(selectedSpecies) ? 'New Image' : 'Generate Image'}
                 </button>
 
                 {getBestImageUrl(selectedSpecies) && (
@@ -688,10 +691,10 @@ export default function GalleryPage() {
                       fontWeight: '400',
                       transition: 'all 0.2s ease',
                       fontFamily: 'inherit',
-                      minWidth: '140px'
+                      width: '140px'
                     }}
                   >
-                    {generating === 'video' ? 'Generating...' : 'Generate Video'}
+                    {generating === 'video' ? 'Generating...' : getBestVideoUrl(selectedSpecies) ? 'New Video' : 'Generate Video'}
                   </button>
                 )}
               </div>

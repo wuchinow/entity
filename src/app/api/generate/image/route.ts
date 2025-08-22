@@ -119,28 +119,76 @@ export async function POST(request: NextRequest) {
       }, { status: 500 });
     }
 
-    // Update species with both Replicate and Supabase URLs
-    const updateData: any = {
-      image_url: imageUrl,
-      generation_status: 'generating_video', // Next step after image is generated
-      image_generated_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    };
+    // Add new media to history and set as current using the new function
+    try {
+      const { data: mediaResult, error: mediaError } = await supabase
+        .rpc('add_species_media', {
+          p_species_id: speciesId,
+          p_media_type: 'image',
+          p_replicate_url: imageUrl,
+          p_supabase_url: supabaseImageUrl || null,
+          p_supabase_path: supabaseImagePath || null,
+          p_replicate_prediction_id: prediction.id
+        });
 
-    // Add Supabase storage data if successful
-    if (supabaseImagePath && supabaseImageUrl) {
-      updateData.supabase_image_path = supabaseImagePath;
-      updateData.supabase_image_url = supabaseImageUrl;
-    }
+      if (mediaError) {
+        console.error('Error adding media to history:', mediaError);
+        // Fall back to direct update for backward compatibility
+        const updateData: any = {
+          image_url: imageUrl,
+          current_image_url: imageUrl,
+          generation_status: 'generating_video',
+          image_generated_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
 
-    const { error: updateError } = await supabase
-      .from('species')
-      .update(updateData)
-      .eq('id', speciesId);
+        if (supabaseImagePath && supabaseImageUrl) {
+          updateData.supabase_image_path = supabaseImagePath;
+          updateData.supabase_image_url = supabaseImageUrl;
+          updateData.current_supabase_image_url = supabaseImageUrl;
+          updateData.current_supabase_image_path = supabaseImagePath;
+        }
 
-    if (updateError) {
-      console.error('Error updating species with image:', updateError);
-      return NextResponse.json({ error: 'Failed to save image' }, { status: 500 });
+        const { error: updateError } = await supabase
+          .from('species')
+          .update(updateData)
+          .eq('id', speciesId);
+
+        if (updateError) {
+          console.error('Error updating species with image:', updateError);
+          return NextResponse.json({ error: 'Failed to save image' }, { status: 500 });
+        }
+      } else {
+        // Update generation status since the RPC function handles media updates
+        await supabase
+          .from('species')
+          .update({ generation_status: 'generating_video' })
+          .eq('id', speciesId);
+      }
+    } catch (rpcError) {
+      console.error('RPC function not available, using fallback:', rpcError);
+      // Fallback to direct update if RPC function doesn't exist yet
+      const updateData: any = {
+        image_url: imageUrl,
+        generation_status: 'generating_video',
+        image_generated_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      if (supabaseImagePath && supabaseImageUrl) {
+        updateData.supabase_image_path = supabaseImagePath;
+        updateData.supabase_image_url = supabaseImageUrl;
+      }
+
+      const { error: updateError } = await supabase
+        .from('species')
+        .update(updateData)
+        .eq('id', speciesId);
+
+      if (updateError) {
+        console.error('Error updating species with image:', updateError);
+        return NextResponse.json({ error: 'Failed to save image' }, { status: 500 });
+      }
     }
 
     return NextResponse.json({

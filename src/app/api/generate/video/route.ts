@@ -143,27 +143,76 @@ export async function POST(request: NextRequest) {
       }, { status: 500 });
     }
 
-    // Update species with both Replicate and Supabase URLs
-    const updateData: any = {
-      video_url: videoUrl,
-      generation_status: 'completed',
-      updated_at: new Date().toISOString()
-    };
+    // Add new media to history and set as current using the new function
+    try {
+      const { data: mediaResult, error: mediaError } = await supabase
+        .rpc('add_species_media', {
+          p_species_id: speciesId,
+          p_media_type: 'video',
+          p_replicate_url: videoUrl,
+          p_supabase_url: supabaseVideoUrl || null,
+          p_supabase_path: supabaseVideoPath || null,
+          p_replicate_prediction_id: prediction.id
+        });
 
-    // Add Supabase storage data if successful
-    if (supabaseVideoPath && supabaseVideoUrl) {
-      updateData.supabase_video_path = supabaseVideoPath;
-      updateData.supabase_video_url = supabaseVideoUrl;
-    }
+      if (mediaError) {
+        console.error('Error adding media to history:', mediaError);
+        // Fall back to direct update for backward compatibility
+        const updateData: any = {
+          video_url: videoUrl,
+          current_video_url: videoUrl,
+          generation_status: 'completed',
+          video_generated_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
 
-    const { error: updateError } = await supabase
-      .from('species')
-      .update(updateData)
-      .eq('id', speciesId);
+        if (supabaseVideoPath && supabaseVideoUrl) {
+          updateData.supabase_video_path = supabaseVideoPath;
+          updateData.supabase_video_url = supabaseVideoUrl;
+          updateData.current_supabase_video_url = supabaseVideoUrl;
+          updateData.current_supabase_video_path = supabaseVideoPath;
+        }
 
-    if (updateError) {
-      console.error('Error updating species with video:', updateError);
-      return NextResponse.json({ error: 'Failed to save video' }, { status: 500 });
+        const { error: updateError } = await supabase
+          .from('species')
+          .update(updateData)
+          .eq('id', speciesId);
+
+        if (updateError) {
+          console.error('Error updating species with video:', updateError);
+          return NextResponse.json({ error: 'Failed to save video' }, { status: 500 });
+        }
+      } else {
+        // Update generation status since the RPC function handles media updates
+        await supabase
+          .from('species')
+          .update({ generation_status: 'completed' })
+          .eq('id', speciesId);
+      }
+    } catch (rpcError) {
+      console.error('RPC function not available, using fallback:', rpcError);
+      // Fallback to direct update if RPC function doesn't exist yet
+      const updateData: any = {
+        video_url: videoUrl,
+        generation_status: 'completed',
+        video_generated_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      if (supabaseVideoPath && supabaseVideoUrl) {
+        updateData.supabase_video_path = supabaseVideoPath;
+        updateData.supabase_video_url = supabaseVideoUrl;
+      }
+
+      const { error: updateError } = await supabase
+        .from('species')
+        .update(updateData)
+        .eq('id', speciesId);
+
+      if (updateError) {
+        console.error('Error updating species with video:', updateError);
+        return NextResponse.json({ error: 'Failed to save video' }, { status: 500 });
+      }
     }
 
     return NextResponse.json({
