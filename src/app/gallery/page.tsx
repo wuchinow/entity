@@ -129,7 +129,6 @@ export default function GalleryPage() {
     if (!selectedSpecies) return;
     
     setGenerating('image');
-    setMessage(`Generating AI image for ${selectedSpecies.common_name}...`);
     
     try {
       const response = await fetch('/api/generate/image', {
@@ -163,10 +162,8 @@ export default function GalleryPage() {
       // Auto-select image when generated
       setSelectedMedia('image');
       
-      setMessage(`AI image generated for ${selectedSpecies.common_name}`);
-      
     } catch (error) {
-      setMessage(`Error generating image: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      console.error('Error generating image:', error);
     } finally {
       setGenerating(null);
     }
@@ -176,7 +173,6 @@ export default function GalleryPage() {
     if (!selectedSpecies) return;
     
     setGenerating('video');
-    setMessage(`Generating 10-second AI video for ${selectedSpecies.common_name}... (this may take 2-3 minutes)`);
     
     try {
       // Use the best available image URL (prefer Supabase over Replicate)
@@ -224,11 +220,8 @@ export default function GalleryPage() {
       // Auto-select video when generated
       setSelectedMedia('video');
       
-      setMessage(`AI video generated for ${selectedSpecies.common_name}`);
-      
     } catch (error) {
       console.error('Video generation error:', error);
-      setMessage(`Error generating video: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setGenerating(null);
     }
@@ -327,11 +320,22 @@ export default function GalleryPage() {
           }}>
             {species.map((spec) => {
               const getStatusIndicator = () => {
-                if (spec.generation_status === 'completed') return { text: 'Complete', color: '#4CAF50' };
-                if (spec.generation_status === 'generating_video') return { text: 'Has Image', color: '#2196F3' };
-                if (spec.generation_status === 'generating_image') return { text: 'Generating...', color: '#FF9800' };
+                // Show error status always
                 if (spec.generation_status === 'error') return { text: 'Error', color: '#f44336' };
-                return { text: 'Pending', color: '#666' };
+                
+                // Only show generating status if we don't have ANY media yet
+                if ((spec.generation_status === 'generating_image' || spec.generation_status === 'generating_video')
+                    && !getBestImageUrl(spec) && !getBestVideoUrl(spec)) {
+                  return { text: 'Generating...', color: '#FF9800' };
+                }
+                
+                // Only show "Pending" for species with no media at all
+                if (!getBestImageUrl(spec) && !getBestVideoUrl(spec) && spec.generation_status === 'pending') {
+                  return { text: 'Pending', color: '#666' };
+                }
+                
+                // Don't show any status text when we have media (thumbnails speak for themselves)
+                return null;
               };
 
               const statusInfo = getStatusIndicator();
@@ -339,7 +343,15 @@ export default function GalleryPage() {
               return (
                 <div
                   key={spec.id}
-                  onClick={() => setSelectedSpecies(spec)}
+                  onClick={() => {
+                    setSelectedSpecies(spec);
+                    // Auto-select image if available, otherwise video
+                    if (getBestImageUrl(spec)) {
+                      setSelectedMedia('image');
+                    } else if (getBestVideoUrl(spec)) {
+                      setSelectedMedia('video');
+                    }
+                  }}
                   style={{
                     padding: '15px',
                     margin: '5px 0',
@@ -351,42 +363,71 @@ export default function GalleryPage() {
                     border: selectedSpecies?.id === spec.id
                       ? '1px solid rgba(76, 175, 80, 0.5)'
                       : '1px solid rgba(255,255,255,0.1)',
-                    transition: 'all 0.2s ease'
+                    transition: 'all 0.2s ease',
+                    minHeight: '80px', // Fixed minimum height
+                    display: 'flex',
+                    flexDirection: 'column'
                   }}
                 >
                   <div style={{
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'flex-start',
-                    marginBottom: '5px'
+                    flex: 1
                   }}>
-                    <div style={{ fontWeight: '500', fontSize: '14px' }}>
-                      {spec.common_name}
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                      <div style={{
-                        fontSize: '10px',
-                        color: statusInfo.color,
-                        fontWeight: '500',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.5px',
-                        marginBottom: '4px'
-                      }}>
-                        {statusInfo.text}
+                    <div style={{
+                      flex: 1,
+                      paddingRight: '10px'
+                    }}>
+                      <div style={{ fontWeight: '500', fontSize: '14px', marginBottom: '4px' }}>
+                        {spec.common_name}
                       </div>
+                      <div style={{ fontSize: '12px', color: '#aaa', fontStyle: 'italic', marginBottom: '4px' }}>
+                        {spec.scientific_name}
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#888' }}>
+                        Extinct: {spec.year_extinct}
+                      </div>
+                    </div>
+                    
+                    {/* Fixed-size thumbnail area */}
+                    <div style={{
+                      width: '60px',
+                      height: '45px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-end',
+                      justifyContent: 'flex-start'
+                    }}>
+                      {/* Status text only for pending/generating/error */}
+                      {statusInfo && (
+                        <div style={{
+                          fontSize: '9px',
+                          color: statusInfo.color,
+                          fontWeight: '500',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                          marginBottom: '4px',
+                          textAlign: 'right'
+                        }}>
+                          {statusInfo.text}
+                        </div>
+                      )}
                       
-                      {/* Thumbnails under status label */}
-                      {spec.generation_status === 'completed' && (getBestImageUrl(spec) || getBestVideoUrl(spec)) && (
+                      {/* Thumbnails in fixed container - Image above Video */}
+                      {(getBestImageUrl(spec) || getBestVideoUrl(spec)) && (
                         <div style={{
                           display: 'flex',
-                          gap: '4px'
+                          flexDirection: 'column',
+                          gap: '2px',
+                          alignItems: 'flex-end'
                         }}>
                           {getBestImageUrl(spec) && (
                             <img
                               src={getBestImageUrl(spec)}
                               alt={`${spec.common_name} thumbnail`}
                               style={{
-                                width: '24px',
+                                width: '28px',
                                 height: '18px',
                                 objectFit: 'cover',
                                 borderRadius: '2px',
@@ -396,29 +437,39 @@ export default function GalleryPage() {
                           )}
                           {getBestVideoUrl(spec) && (
                             <div style={{
-                              width: '24px',
+                              position: 'relative',
+                              width: '28px',
                               height: '18px',
-                              background: 'rgba(255,255,255,0.1)',
                               borderRadius: '2px',
                               border: '1px solid rgba(255,255,255,0.2)',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              fontSize: '8px',
-                              color: '#fff'
+                              overflow: 'hidden'
                             }}>
-                              ▶
+                              <video
+                                src={getBestVideoUrl(spec)}
+                                muted
+                                style={{
+                                  width: '100%',
+                                  height: '100%',
+                                  objectFit: 'cover'
+                                }}
+                              />
+                              <div style={{
+                                position: 'absolute',
+                                top: '50%',
+                                left: '50%',
+                                transform: 'translate(-50%, -50%)',
+                                color: 'white',
+                                fontSize: '8px',
+                                textShadow: '0 0 2px rgba(0,0,0,0.8)',
+                                pointerEvents: 'none'
+                              }}>
+                                ▶
+                              </div>
                             </div>
                           )}
                         </div>
                       )}
                     </div>
-                  </div>
-                  <div style={{ fontSize: '12px', color: '#aaa', fontStyle: 'italic' }}>
-                    {spec.scientific_name}
-                  </div>
-                  <div style={{ fontSize: '11px', color: '#888', marginTop: '5px' }}>
-                    Extinct: {spec.year_extinct}
                   </div>
                 </div>
               );
@@ -505,28 +556,30 @@ export default function GalleryPage() {
                     marginTop: '10px',
                     alignItems: 'center'
                   }}>
-                    {/* Media Selection Buttons */}
+                    {/* Media Selection Buttons - Image above Video */}
                     <div style={{
                       display: 'flex',
+                      flexDirection: 'column',
                       gap: '6px',
                       padding: '6px',
                       background: 'rgba(0,0,0,0.3)',
                       borderRadius: '8px',
                       flexShrink: 0,
-                      justifyContent: 'center'
+                      alignItems: 'center'
                     }}>
                       {getBestImageUrl(selectedSpecies) && (
                         <button
                           onClick={() => setSelectedMedia('image')}
                           style={{
                             width: '60px',
-                            height: '45px',
+                            height: '40px',
                             border: selectedMedia === 'image' ? '2px solid #4CAF50' : '1px solid rgba(255,255,255,0.2)',
                             borderRadius: '4px',
                             background: 'rgba(255,255,255,0.05)',
                             cursor: 'pointer',
                             overflow: 'hidden',
-                            transition: 'all 0.2s ease'
+                            transition: 'all 0.2s ease',
+                            padding: 0
                           }}
                         >
                           <img
@@ -545,20 +598,38 @@ export default function GalleryPage() {
                           onClick={() => setSelectedMedia('video')}
                           style={{
                             width: '60px',
-                            height: '45px',
+                            height: '40px',
                             border: selectedMedia === 'video' ? '2px solid #4CAF50' : '1px solid rgba(255,255,255,0.2)',
                             borderRadius: '4px',
-                            background: 'rgba(255,255,255,0.1)',
+                            background: 'rgba(255,255,255,0.05)',
                             cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: '16px',
-                            color: '#fff',
-                            transition: 'all 0.2s ease'
+                            overflow: 'hidden',
+                            transition: 'all 0.2s ease',
+                            padding: 0,
+                            position: 'relative'
                           }}
                         >
-                          ▶
+                          <video
+                            src={getBestVideoUrl(selectedSpecies)}
+                            muted
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'cover'
+                            }}
+                          />
+                          <div style={{
+                            position: 'absolute',
+                            top: '50%',
+                            left: '50%',
+                            transform: 'translate(-50%, -50%)',
+                            color: 'white',
+                            fontSize: '14px',
+                            textShadow: '0 0 4px rgba(0,0,0,0.8)',
+                            pointerEvents: 'none'
+                          }}>
+                            ▶
+                          </div>
                         </button>
                       )}
                     </div>
@@ -568,17 +639,15 @@ export default function GalleryPage() {
                 )}
               </div>
 
-              {/* Controls */}
-              <div className="controls-section" style={{
-                padding: '15px 20px',
+              {/* Generate buttons centered under media */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'center',
+                gap: '15px',
+                padding: '20px',
                 borderTop: '1px solid rgba(255,255,255,0.1)',
                 background: 'rgba(0,0,0,0.2)',
-                display: 'flex',
-                gap: '15px',
-                alignItems: 'center',
-                flexShrink: 0, // Prevent shrinking
-                flexWrap: 'wrap', // Allow wrapping on small screens
-                minHeight: '70px' // Ensure minimum height for controls
+                flexShrink: 0
               }}>
                 <button
                   onClick={generateImage}
@@ -590,18 +659,19 @@ export default function GalleryPage() {
                     color: generating === 'image' ? '#ccc' : '#fff',
                     border: '1px solid rgba(255,255,255,0.2)',
                     padding: '12px 24px',
-                    borderRadius: '4px',
+                    borderRadius: '6px',
                     fontSize: '14px',
                     cursor: generating !== null ? 'not-allowed' : 'pointer',
                     fontWeight: '400',
                     transition: 'all 0.2s ease',
-                    fontFamily: 'inherit'
+                    fontFamily: 'inherit',
+                    minWidth: '140px'
                   }}
                 >
-                  {generating === 'image' ? 'Generating Image...' : 'Generate Image'}
+                  {generating === 'image' ? 'Generating...' : 'Generate Image'}
                 </button>
 
-                {selectedSpecies.image_url && (
+                {getBestImageUrl(selectedSpecies) && (
                   <button
                     onClick={generateVideo}
                     disabled={generating !== null}
@@ -612,26 +682,17 @@ export default function GalleryPage() {
                       color: generating === 'video' ? '#ccc' : '#fff',
                       border: '1px solid rgba(255,255,255,0.2)',
                       padding: '12px 24px',
-                      borderRadius: '4px',
+                      borderRadius: '6px',
                       fontSize: '14px',
                       cursor: generating !== null ? 'not-allowed' : 'pointer',
                       fontWeight: '400',
                       transition: 'all 0.2s ease',
-                      fontFamily: 'inherit'
+                      fontFamily: 'inherit',
+                      minWidth: '140px'
                     }}
                   >
-                    {generating === 'video' ? 'Generating Video...' : 'Generate Video'}
+                    {generating === 'video' ? 'Generating...' : 'Generate Video'}
                   </button>
-                )}
-
-                {message && (
-                  <div style={{
-                    marginLeft: '20px',
-                    fontSize: '14px',
-                    color: message.includes('Error') ? '#f44336' : message.includes('generated') ? '#4CAF50' : '#fff'
-                  }}>
-                    {message}
-                  </div>
                 )}
               </div>
             </>
