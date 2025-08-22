@@ -96,14 +96,27 @@ export async function POST(request: NextRequest) {
       supabaseImagePath = storageResult.path;
       supabaseImageUrl = storageResult.publicUrl;
       
-      console.log('Image stored successfully:', {
+      console.log('✅ Image stored successfully in Supabase Storage:', {
         path: supabaseImagePath,
         url: supabaseImageUrl
       });
     } catch (storageError) {
-      console.error('Error storing image in Supabase Storage:', storageError);
-      console.log('Continuing with Replicate URL as fallback...');
-      // Continue with Replicate URL as fallback - this is expected if bucket doesn't exist yet
+      console.error('❌ CRITICAL: Failed to store image in Supabase Storage:', storageError);
+      
+      // Update species with error status to indicate storage failure
+      await supabase
+        .from('species')
+        .update({
+          generation_status: 'error',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', speciesId);
+      
+      return NextResponse.json({
+        error: 'Failed to store image permanently. This is a critical issue that needs immediate attention.',
+        details: storageError instanceof Error ? storageError.message : 'Unknown storage error',
+        replicateUrl: imageUrl // Provide the temporary URL for debugging
+      }, { status: 500 });
     }
 
     // Update species with both Replicate and Supabase URLs

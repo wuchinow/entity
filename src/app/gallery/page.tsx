@@ -43,7 +43,13 @@ export default function GalleryPage() {
   // Download function for media files
   const downloadMedia = async (url: string, filename: string) => {
     try {
+      setMessage(`Downloading ${filename}...`);
       const response = await fetch(url);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to download: ${response.statusText}`);
+      }
+      
       const blob = await response.blob();
       const downloadUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -53,8 +59,15 @@ export default function GalleryPage() {
       link.click();
       document.body.removeChild(link);
       window.URL.revokeObjectURL(downloadUrl);
+      
+      setMessage(`Downloaded ${filename} successfully!`);
+      
+      // Clear message after 3 seconds
+      setTimeout(() => setMessage(''), 3000);
     } catch (error) {
       console.error('Error downloading file:', error);
+      setMessage(`Failed to download ${filename}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setTimeout(() => setMessage(''), 5000);
     }
   };
 
@@ -64,21 +77,50 @@ export default function GalleryPage() {
 
   const loadSpecies = async () => {
     try {
+      console.log('Loading species from API...');
+      console.log('Current URL:', window.location.href);
+      console.log('Fetching from:', '/api/species');
+      
       const response = await fetch('/api/species');
+      console.log('Response status:', response.status);
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Response error text:', errorText);
+        throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
+      }
+      
       const data = await response.json();
+      console.log('Species API response type:', typeof data);
+      console.log('Species API response keys:', Object.keys(data));
+      console.log('Species API response:', data);
       
       if (data.error) {
+        console.error('API returned error:', data.error);
         throw new Error(data.error);
       }
       
-      setSpecies(data.species || []);
-      if (data.species && data.species.length > 0) {
-        setSelectedSpecies(data.species[0]);
+      const speciesList = data.species || [];
+      console.log(`Raw species list length: ${speciesList.length}`);
+      console.log('First 3 species:', speciesList.slice(0, 3));
+      
+      setSpecies(speciesList);
+      console.log('Species state updated, length:', speciesList.length);
+      
+      if (speciesList.length > 0) {
+        setSelectedSpecies(speciesList[0]);
+        console.log('Selected first species:', speciesList[0].common_name);
+      } else {
+        console.warn('No species found in database');
+        setMessage('No species found in database. Please load species data first.');
       }
       setLoading(false);
+      console.log('Loading complete, species count:', speciesList.length);
     } catch (error) {
       console.error('Error loading species:', error);
-      setMessage(`Error loading species: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+      setMessage(`Error loading species: ${error instanceof Error ? error.message : 'Unknown error'}. Check console for details.`);
       setLoading(false);
     }
   };
@@ -137,6 +179,15 @@ export default function GalleryPage() {
     setMessage(`Generating 10-second AI video for ${selectedSpecies.common_name}... (this may take 2-3 minutes)`);
     
     try {
+      // Use the best available image URL (prefer Supabase over Replicate)
+      const imageUrl = getBestImageUrl(selectedSpecies);
+      
+      if (!imageUrl) {
+        throw new Error('No image available for video generation. Please generate an image first.');
+      }
+      
+      console.log('Generating video with image URL:', imageUrl);
+      
       const response = await fetch('/api/generate/video', {
         method: 'POST',
         headers: {
@@ -144,7 +195,7 @@ export default function GalleryPage() {
         },
         body: JSON.stringify({
           speciesId: selectedSpecies.id,
-          imageUrl: selectedSpecies.image_url
+          imageUrl: imageUrl
         }),
       });
 
@@ -157,7 +208,9 @@ export default function GalleryPage() {
       // Update the selected species with the generated video
       const updatedSpecies = {
         ...selectedSpecies,
-        video_url: data.videoUrl,
+        video_url: data.replicateUrl,
+        supabase_video_url: data.supabaseUrl,
+        supabase_video_path: data.species?.supabase_video_path,
         generation_status: 'completed'
       };
       
@@ -174,16 +227,21 @@ export default function GalleryPage() {
       setMessage(`AI video generated for ${selectedSpecies.common_name}`);
       
     } catch (error) {
+      console.error('Video generation error:', error);
       setMessage(`Error generating video: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setGenerating(null);
     }
   };
 
-  if (loading || !mounted) {
+  if (!mounted) {
+    return null; // Prevent hydration mismatch
+  }
+
+  if (loading) {
     return (
-      <div style={{ 
-        minHeight: '100vh', 
+      <div style={{
+        minHeight: '100vh',
         background: 'linear-gradient(135deg, #0c0c0c 0%, #1a1a1a 50%, #0f0f0f 100%)',
         display: 'flex',
         alignItems: 'center',
@@ -438,64 +496,74 @@ export default function GalleryPage() {
                   )}
                 </div>
 
-                {/* Media Selection Buttons */}
+                {/* Media Selection and Download Buttons */}
                 {(getBestImageUrl(selectedSpecies) || getBestVideoUrl(selectedSpecies)) && (
                   <div style={{
                     display: 'flex',
-                    gap: '6px',
+                    flexDirection: 'column',
+                    gap: '8px',
                     marginTop: '10px',
-                    padding: '6px',
-                    background: 'rgba(0,0,0,0.3)',
-                    borderRadius: '8px',
-                    flexShrink: 0,
-                    justifyContent: 'center'
+                    alignItems: 'center'
                   }}>
-                    {getBestImageUrl(selectedSpecies) && (
-                      <button
-                        onClick={() => setSelectedMedia('image')}
-                        style={{
-                          width: '60px',
-                          height: '45px',
-                          border: selectedMedia === 'image' ? '2px solid #4CAF50' : '1px solid rgba(255,255,255,0.2)',
-                          borderRadius: '4px',
-                          background: 'rgba(255,255,255,0.05)',
-                          cursor: 'pointer',
-                          overflow: 'hidden',
-                          transition: 'all 0.2s ease'
-                        }}
-                      >
-                        <img
-                          src={getBestImageUrl(selectedSpecies)}
-                          alt="Image thumbnail"
+                    {/* Media Selection Buttons */}
+                    <div style={{
+                      display: 'flex',
+                      gap: '6px',
+                      padding: '6px',
+                      background: 'rgba(0,0,0,0.3)',
+                      borderRadius: '8px',
+                      flexShrink: 0,
+                      justifyContent: 'center'
+                    }}>
+                      {getBestImageUrl(selectedSpecies) && (
+                        <button
+                          onClick={() => setSelectedMedia('image')}
                           style={{
-                            width: '100%',
-                            height: '100%',
-                            objectFit: 'cover'
+                            width: '60px',
+                            height: '45px',
+                            border: selectedMedia === 'image' ? '2px solid #4CAF50' : '1px solid rgba(255,255,255,0.2)',
+                            borderRadius: '4px',
+                            background: 'rgba(255,255,255,0.05)',
+                            cursor: 'pointer',
+                            overflow: 'hidden',
+                            transition: 'all 0.2s ease'
                           }}
-                        />
-                      </button>
-                    )}
-                    {getBestVideoUrl(selectedSpecies) && (
-                      <button
-                        onClick={() => setSelectedMedia('video')}
-                        style={{
-                          width: '60px',
-                          height: '45px',
-                          border: selectedMedia === 'video' ? '2px solid #4CAF50' : '1px solid rgba(255,255,255,0.2)',
-                          borderRadius: '4px',
-                          background: 'rgba(255,255,255,0.1)',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: '16px',
-                          color: '#fff',
-                          transition: 'all 0.2s ease'
-                        }}
-                      >
-                        ▶
-                      </button>
-                    )}
+                        >
+                          <img
+                            src={getBestImageUrl(selectedSpecies)}
+                            alt="Image thumbnail"
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'cover'
+                            }}
+                          />
+                        </button>
+                      )}
+                      {getBestVideoUrl(selectedSpecies) && (
+                        <button
+                          onClick={() => setSelectedMedia('video')}
+                          style={{
+                            width: '60px',
+                            height: '45px',
+                            border: selectedMedia === 'video' ? '2px solid #4CAF50' : '1px solid rgba(255,255,255,0.2)',
+                            borderRadius: '4px',
+                            background: 'rgba(255,255,255,0.1)',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '16px',
+                            color: '#fff',
+                            transition: 'all 0.2s ease'
+                          }}
+                        >
+                          ▶
+                        </button>
+                      )}
+                    </div>
+                    
+                    {/* Download buttons hidden - users can drag images or use video controls */}
                   </div>
                 )}
               </div>

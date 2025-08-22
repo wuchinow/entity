@@ -49,6 +49,15 @@ export async function POST(request: NextRequest) {
     console.log('Using image URL:', imageUrl);
 
     // Generate video using Replicate Kling v1.6 Standard (image-to-video)
+    console.log('Creating Replicate prediction with input:', {
+      model: "kwaivgi/kling-v1.6-standard",
+      prompt: `A photorealistic video of ${species.common_name} (${species.scientific_name}) in its natural habitat. The extinct ${species.common_name} moves naturally through its environment, showing realistic behavior and movement patterns.`,
+      start_image: imageUrl,
+      duration: 10,
+      aspect_ratio: "16:9",
+      camera_movement: "none"
+    });
+    
     const prediction = await replicate.predictions.create({
       model: "kwaivgi/kling-v1.6-standard",
       input: {
@@ -60,15 +69,30 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    // Wait for the prediction to complete
+    console.log('Replicate prediction created:', prediction.id, 'Status:', prediction.status);
+
+    // Wait for the prediction to complete with timeout
     let completedPrediction = prediction;
-    while (completedPrediction.status !== "succeeded" && completedPrediction.status !== "failed") {
+    let attempts = 0;
+    const maxAttempts = 180; // 6 minutes max (180 * 2 seconds)
+    
+    while (completedPrediction.status !== "succeeded" && completedPrediction.status !== "failed" && attempts < maxAttempts) {
       await new Promise(resolve => setTimeout(resolve, 2000)); // Check every 2 seconds for video
       completedPrediction = await replicate.predictions.get(prediction.id);
+      attempts++;
+      
+      if (attempts % 15 === 0) { // Log every 30 seconds
+        console.log(`Video generation progress - Attempt ${attempts}/${maxAttempts}, Status: ${completedPrediction.status}`);
+      }
+    }
+
+    if (attempts >= maxAttempts) {
+      throw new Error(`Video generation timed out after ${maxAttempts * 2} seconds`);
     }
 
     if (completedPrediction.status === "failed") {
-      throw new Error('Video generation failed');
+      console.error('Replicate prediction failed:', completedPrediction.error);
+      throw new Error(`Video generation failed: ${completedPrediction.error || 'Unknown Replicate error'}`);
     }
 
     const videoUrl = completedPrediction.output;
@@ -96,13 +120,27 @@ export async function POST(request: NextRequest) {
       supabaseVideoPath = storageResult.path;
       supabaseVideoUrl = storageResult.publicUrl;
       
-      console.log('Video stored successfully:', {
+      console.log('✅ Video stored successfully in Supabase Storage:', {
         path: supabaseVideoPath,
         url: supabaseVideoUrl
       });
     } catch (storageError) {
-      console.error('Error storing video in Supabase Storage:', storageError);
-      // Continue with Replicate URL as fallback
+      console.error('❌ CRITICAL: Failed to store video in Supabase Storage:', storageError);
+      
+      // Update species with error status to indicate storage failure
+      await supabase
+        .from('species')
+        .update({
+          generation_status: 'error',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', speciesId);
+      
+      return NextResponse.json({
+        error: 'Failed to store video permanently. This is a critical issue that needs immediate attention.',
+        details: storageError instanceof Error ? storageError.message : 'Unknown storage error',
+        replicateUrl: videoUrl // Provide the temporary URL for debugging
+      }, { status: 500 });
     }
 
     // Update species with both Replicate and Supabase URLs

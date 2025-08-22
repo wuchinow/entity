@@ -15,15 +15,23 @@ export class MediaStorageService {
       }
       
       // Check if bucket exists
-      const { data: buckets } = await supabaseAdmin.storage.listBuckets();
+      const { data: buckets, error: listError } = await supabaseAdmin.storage.listBuckets();
+      
+      if (listError) {
+        console.error('Error listing buckets:', listError);
+        throw listError;
+      }
+      
       const bucketExists = buckets?.some(bucket => bucket.name === this.BUCKET_NAME);
 
       if (!bucketExists) {
-        // Create bucket with no file size limit to avoid 413 errors
+        console.log(`Creating storage bucket: ${this.BUCKET_NAME}`);
+        
+        // Create bucket with proper configuration
         const { error: createError } = await supabaseAdmin.storage.createBucket(this.BUCKET_NAME, {
           public: true,
-          allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/webm']
-          // Removed fileSizeLimit to use Supabase default limits
+          allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/webm'],
+          fileSizeLimit: 50 * 1024 * 1024 // 50MB limit per file
         });
 
         if (createError) {
@@ -31,7 +39,12 @@ export class MediaStorageService {
           throw createError;
         }
 
-        console.log(`Created storage bucket: ${this.BUCKET_NAME}`);
+        console.log(`Successfully created storage bucket: ${this.BUCKET_NAME}`);
+        
+        // Create folder structure
+        await this.createFolderStructure();
+      } else {
+        console.log(`Storage bucket ${this.BUCKET_NAME} already exists`);
       }
     } catch (error) {
       console.error('Error initializing storage bucket:', error);
@@ -40,85 +53,156 @@ export class MediaStorageService {
   }
 
   /**
-   * Download a file from a URL and upload it to Supabase Storage
+   * Create folder structure in the bucket
+   */
+  private static async createFolderStructure(): Promise<void> {
+    try {
+      if (!supabaseAdmin) return;
+      
+      // Create placeholder files to establish folder structure
+      const placeholderContent = new Uint8Array([]);
+      
+      await Promise.all([
+        supabaseAdmin.storage
+          .from(this.BUCKET_NAME)
+          .upload(`${this.IMAGE_FOLDER}/.placeholder`, placeholderContent, {
+            contentType: 'text/plain',
+            upsert: true
+          }),
+        supabaseAdmin.storage
+          .from(this.BUCKET_NAME)
+          .upload(`${this.VIDEO_FOLDER}/.placeholder`, placeholderContent, {
+            contentType: 'text/plain',
+            upsert: true
+          })
+      ]);
+      
+      console.log('Created folder structure in storage bucket');
+    } catch (error) {
+      console.warn('Could not create folder structure:', error);
+      // Don't throw - this is not critical
+    }
+  }
+
+  /**
+   * Download a file from a URL and upload it to Supabase Storage with retry logic
    */
   static async downloadAndStore(
     url: string,
     speciesId: string,
     type: 'image' | 'video',
-    commonName: string
+    commonName: string,
+    maxRetries: number = 3
   ): Promise<{ path: string; publicUrl: string }> {
-    try {
-      // Auto-initialize bucket on first use
-      await this.initializeBucket();
+    let lastError: Error | null = null;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`Attempt ${attempt}/${maxRetries}: Downloading and storing ${type} for ${commonName}`);
+        
+        // Auto-initialize bucket on first use
+        await this.initializeBucket();
 
-      // Download the file from the URL
-      console.log(`Downloading ${type} from:`, url);
-      const response = await fetch(url);
-      
-      if (!response.ok) {
-        throw new Error(`Failed to download ${type}: ${response.statusText}`);
-      }
-
-      const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-
-      // Determine file extension from content type or URL
-      const contentType = response.headers.get('content-type') || '';
-      let extension = '';
-      
-      if (type === 'image') {
-        if (contentType.includes('jpeg') || contentType.includes('jpg')) extension = '.jpg';
-        else if (contentType.includes('png')) extension = '.png';
-        else if (contentType.includes('webp')) extension = '.webp';
-        else extension = '.jpg'; // default
-      } else {
-        if (contentType.includes('mp4')) extension = '.mp4';
-        else if (contentType.includes('webm')) extension = '.webm';
-        else extension = '.mp4'; // default
-      }
-
-      // Create file path
-      const folder = type === 'image' ? this.IMAGE_FOLDER : this.VIDEO_FOLDER;
-      const sanitizedName = commonName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
-      const timestamp = Date.now();
-      const fileName = `${sanitizedName}_${speciesId.slice(0, 8)}_${timestamp}${extension}`;
-      const filePath = `${folder}/${fileName}`;
-
-      if (!supabaseAdmin) {
-        throw new Error('Supabase admin client not initialized');
-      }
-      
-      // Upload to Supabase Storage
-      console.log(`Uploading ${type} to:`, filePath);
-      const { error: uploadError } = await supabaseAdmin.storage
-        .from(this.BUCKET_NAME)
-        .upload(filePath, buffer, {
-          contentType: contentType || (type === 'image' ? 'image/jpeg' : 'video/mp4'),
-          upsert: false
+        // Download the file from the URL with timeout
+        console.log(`Downloading ${type} from:`, url);
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+        
+        const response = await fetch(url, {
+          signal: controller.signal,
+          headers: {
+            'User-Agent': 'Entity-v1.0-Media-Downloader'
+          }
         });
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+          throw new Error(`Failed to download ${type}: ${response.status} ${response.statusText}`);
+        }
 
-      if (uploadError) {
-        console.error(`Error uploading ${type}:`, uploadError);
-        throw uploadError;
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        
+        // Validate file size
+        if (buffer.length === 0) {
+          throw new Error(`Downloaded ${type} file is empty`);
+        }
+        
+        if (buffer.length > 50 * 1024 * 1024) { // 50MB limit
+          throw new Error(`Downloaded ${type} file is too large: ${Math.round(buffer.length / 1024 / 1024)}MB`);
+        }
+
+        // Determine file extension from content type or URL
+        const contentType = response.headers.get('content-type') || '';
+        let extension = '';
+        
+        if (type === 'image') {
+          if (contentType.includes('jpeg') || contentType.includes('jpg')) extension = '.jpg';
+          else if (contentType.includes('png')) extension = '.png';
+          else if (contentType.includes('webp')) extension = '.webp';
+          else extension = '.jpg'; // default
+        } else {
+          if (contentType.includes('mp4')) extension = '.mp4';
+          else if (contentType.includes('webm')) extension = '.webm';
+          else extension = '.mp4'; // default
+        }
+
+        // Create file path
+        const folder = type === 'image' ? this.IMAGE_FOLDER : this.VIDEO_FOLDER;
+        const sanitizedName = commonName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+        const timestamp = Date.now();
+        const fileName = `${sanitizedName}_${speciesId.slice(0, 8)}_${timestamp}${extension}`;
+        const filePath = `${folder}/${fileName}`;
+
+        if (!supabaseAdmin) {
+          throw new Error('Supabase admin client not initialized');
+        }
+        
+        // Upload to Supabase Storage
+        console.log(`Uploading ${type} to:`, filePath, `(${Math.round(buffer.length / 1024)}KB)`);
+        const { error: uploadError } = await supabaseAdmin.storage
+          .from(this.BUCKET_NAME)
+          .upload(filePath, buffer, {
+            contentType: contentType || (type === 'image' ? 'image/jpeg' : 'video/mp4'),
+            upsert: false
+          });
+
+        if (uploadError) {
+          console.error(`Error uploading ${type}:`, uploadError);
+          throw new Error(`Upload failed: ${uploadError.message}`);
+        }
+
+        // Get public URL
+        const { data: publicUrlData } = supabaseAdmin.storage
+          .from(this.BUCKET_NAME)
+          .getPublicUrl(filePath);
+
+        // Verify the file was uploaded successfully
+        const fileExists = await this.fileExists(filePath);
+        if (!fileExists) {
+          throw new Error(`File verification failed: ${filePath} not found after upload`);
+        }
+
+        console.log(`✅ Successfully stored ${type} at:`, publicUrlData.publicUrl);
+
+        return {
+          path: filePath,
+          publicUrl: publicUrlData.publicUrl
+        };
+
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        console.error(`Attempt ${attempt}/${maxRetries} failed for ${type} storage:`, lastError.message);
+        
+        if (attempt < maxRetries) {
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000); // Exponential backoff, max 10s
+          console.log(`Retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
       }
-
-      // Get public URL
-      const { data: publicUrlData } = supabaseAdmin.storage
-        .from(this.BUCKET_NAME)
-        .getPublicUrl(filePath);
-
-      console.log(`Successfully stored ${type} at:`, publicUrlData.publicUrl);
-
-      return {
-        path: filePath,
-        publicUrl: publicUrlData.publicUrl
-      };
-
-    } catch (error) {
-      console.error(`Error downloading and storing ${type}:`, error);
-      throw error;
     }
+    
+    throw new Error(`Failed to download and store ${type} after ${maxRetries} attempts. Last error: ${lastError?.message}`);
   }
 
   /**

@@ -95,6 +95,24 @@ export default function AdminPage() {
     }
   };
 
+  const fixStorageIssues = async () => {
+    setMessage('Fixing storage issues... This may take several minutes.');
+    try {
+      const response = await fetch('/api/admin/fix-storage', { method: 'POST' });
+      const data = await response.json();
+      
+      if (data.success) {
+        setMessage(`Storage fix completed! Fixed ${data.fixed} species. ${data.errors.length > 0 ? `${data.errors.length} errors occurred.` : ''}`);
+        await loadData(); // Refresh all data
+      } else {
+        setMessage(`Storage fix failed: ${data.error}`);
+      }
+    } catch (error) {
+      console.error('Error fixing storage:', error);
+      setMessage('Error fixing storage issues');
+    }
+  };
+
   if (!mounted) {
     return (
       <div style={{
@@ -492,6 +510,21 @@ export default function AdminPage() {
                   onClick={loadSpeciesFromCSV}
                 >
                   Load Species Data
+                </button>
+                <button
+                  style={{
+                    background: 'rgba(239, 68, 68, 0.15)',
+                    border: '1px solid rgba(239, 68, 68, 0.3)',
+                    borderRadius: '6px',
+                    padding: '8px 16px',
+                    color: '#f87171',
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit'
+                  }}
+                  onClick={fixStorageIssues}
+                >
+                  Fix Storage Issues
                 </button>
               </div>
             </div>
