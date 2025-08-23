@@ -34,9 +34,9 @@ export async function POST() {
           newStatus = 'completed';
         }
       } else if (hasImage && !hasVideo) {
-        // Has image but no video - should be generating_video or completed
-        if (spec.generation_status === 'generating_image' || spec.generation_status === 'pending') {
-          newStatus = 'generating_video';
+        // Has image but no video - should be ready for video generation
+        if (spec.generation_status === 'generating_image' || spec.generation_status === 'generating_video') {
+          newStatus = 'pending'; // Reset to pending so video generation can start
         }
       } else if (!hasImage && !hasVideo) {
         // No media - should be pending

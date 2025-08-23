@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { createClient } from '@supabase/supabase-js';
 
 interface Species {
   id: string;
@@ -32,9 +33,72 @@ export default function GalleryPage() {
   const [selectedMedia, setSelectedMedia] = useState<'image' | 'video'>('image');
   const [mounted, setMounted] = useState(false);
 
+  // Initialize Supabase client for real-time subscriptions
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Set up real-time subscriptions for automatic updates
+  useEffect(() => {
+    if (!mounted) return;
+
+    console.log('Setting up real-time subscriptions for gallery...');
+    
+    const channel = supabase
+      .channel('species-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'species'
+        },
+        (payload) => {
+          console.log('Real-time species update received:', payload);
+          
+          const updatedSpecies = payload.new as Species;
+          
+          // Update the species list
+          setSpecies(prev => prev.map(s =>
+            s.id === updatedSpecies.id ? updatedSpecies : s
+          ));
+          
+          // Update selected species if it's the one that changed
+          if (selectedSpecies?.id === updatedSpecies.id) {
+            setSelectedSpecies(updatedSpecies);
+            
+            // Auto-select the new media type
+            if (updatedSpecies.supabase_video_url || updatedSpecies.video_url) {
+              setSelectedMedia('video');
+            } else if (updatedSpecies.supabase_image_url || updatedSpecies.image_url) {
+              setSelectedMedia('image');
+            }
+          }
+          
+          // Clear generating states when generation completes
+          if (updatedSpecies.generation_status === 'completed') {
+            setGeneratingStates(prev => ({
+              ...prev,
+              [updatedSpecies.id]: {
+                image: false,
+                video: false
+              }
+            }));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      console.log('Cleaning up real-time subscriptions...');
+      supabase.removeChannel(channel);
+    };
+  }, [mounted, selectedSpecies?.id]);
 
   // Helper functions to get the best available URLs (prefer Supabase over Replicate)
   const getBestImageUrl = (species: Species) => {
@@ -218,8 +282,8 @@ export default function GalleryPage() {
     }));
     
     try {
-      // Use the best available image URL (prefer Supabase over Replicate)
-      const imageUrl = getBestImageUrl(selectedSpecies);
+      // For video generation, prefer Replicate URLs since Supabase URLs aren't accessible to external services
+      const imageUrl = selectedSpecies.image_url || selectedSpecies.supabase_image_url;
       
       if (!imageUrl) {
         throw new Error('No image available for video generation. Please generate an image first.');
