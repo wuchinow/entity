@@ -342,35 +342,30 @@ export default function GalleryPage() {
       const data = await response.json();
       
       if (data.error) {
-        // Handle duplicate request gracefully
-        if (data.status === 'duplicate_request' || data.status === 'race_condition') {
+        // Handle rate limiting and duplicate requests gracefully
+        if (data.status === 'rate_limited') {
+          setMessage('Too many generations in progress. Please try again in a moment.');
+        } else if (data.status === 'duplicate_request') {
           console.log('Generation already in progress:', data.error);
           return; // Silently ignore duplicate requests
+        } else {
+          setMessage(`Error: ${data.error}`);
         }
-        throw new Error(data.error);
+        setTimeout(() => setMessage(''), 5000);
+        return;
       }
       
-      // Reload media to get the new version
-      await loadSpeciesMedia(selectedSpecies.id);
-      
-      // Also reload the species list to update thumbnails (preserve current selection)
-      await loadSpecies(true);
-      
-      // Auto-select image when generated and ensure it's displayed
-      setSelectedMedia('image');
-      console.log('Image generation completed - switched to image view');
+      if (data.success) {
+        console.log('Image generation started successfully');
+        // The real-time updates will handle UI updates when generation completes
+      }
       
     } catch (error) {
       console.error('Error generating image:', error);
+      setMessage(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setTimeout(() => setMessage(''), 5000);
     } finally {
-      setGeneratingStates(prev => ({
-        ...prev,
-        [selectedSpecies.id]: {
-          ...prev[selectedSpecies.id],
-          image: false,
-          video: prev[selectedSpecies.id]?.video || false
-        }
-      }));
+      // Don't clear generating state here - let real-time updates handle it
     }
   };
 
@@ -397,10 +392,19 @@ export default function GalleryPage() {
       const imageUrl = currentImageUrl || getBestImageUrl(selectedSpecies);
       
       if (!imageUrl) {
-        throw new Error('No image available for video generation. Please generate an image first.');
+        setMessage('No image available for video generation. Please generate an image first.');
+        setTimeout(() => setMessage(''), 5000);
+        setGeneratingStates(prev => ({
+          ...prev,
+          [selectedSpecies.id]: {
+            ...prev[selectedSpecies.id],
+            video: false
+          }
+        }));
+        return;
       }
       
-      console.log('Generating video with image URL:', imageUrl, 'version:', currentImageVersion);
+      console.log('Starting video generation with image URL:', imageUrl, 'version:', currentImageVersion);
       
       const response = await fetch('/api/generate/video', {
         method: 'POST',
@@ -417,31 +421,41 @@ export default function GalleryPage() {
       const data = await response.json();
       
       if (data.error) {
-        // Handle duplicate request gracefully
-        if (data.status === 'duplicate_request' || data.status === 'race_condition') {
+        // Handle rate limiting and duplicate requests gracefully
+        if (data.status === 'rate_limited') {
+          setMessage('Too many video generations in progress. Please try again in a moment.');
+        } else if (data.status === 'duplicate_request') {
           console.log('Generation already in progress:', data.error);
           return; // Silently ignore duplicate requests
+        } else {
+          setMessage(`Error: ${data.error}`);
         }
-        throw new Error(data.error);
+        setTimeout(() => setMessage(''), 5000);
+        
+        setGeneratingStates(prev => ({
+          ...prev,
+          [selectedSpecies.id]: {
+            ...prev[selectedSpecies.id],
+            video: false
+          }
+        }));
+        return;
       }
       
-      // Reload media to get the new version
-      await loadSpeciesMedia(selectedSpecies.id);
-      
-      // Also reload the species list to update thumbnails (preserve current selection)
-      await loadSpecies(true);
-      
-      // Auto-select video when generated
-      setSelectedMedia('video');
+      if (data.success) {
+        console.log('Video generation started successfully');
+        // The real-time updates will handle UI updates when generation completes
+      }
       
     } catch (error) {
       console.error('Video generation error:', error);
-    } finally {
+      setMessage(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setTimeout(() => setMessage(''), 5000);
+      
       setGeneratingStates(prev => ({
         ...prev,
         [selectedSpecies.id]: {
           ...prev[selectedSpecies.id],
-          image: prev[selectedSpecies.id]?.image || false,
           video: false
         }
       }));
@@ -775,6 +789,22 @@ export default function GalleryPage() {
                   <div>Cause: {selectedSpecies.extinction_cause}</div>
                 </div>
               </div>
+
+              {/* Message Display */}
+              {message && (
+                <div style={{
+                  padding: '15px',
+                  background: 'rgba(76, 175, 80, 0.1)',
+                  border: '1px solid rgba(76, 175, 80, 0.3)',
+                  borderRadius: '6px',
+                  margin: '0 30px',
+                  color: '#4CAF50',
+                  fontSize: '14px',
+                  textAlign: 'center'
+                }}>
+                  {message}
+                </div>
+              )}
 
               {/* Media Display */}
               <div className="media-container" style={{
@@ -1214,7 +1244,7 @@ export default function GalleryPage() {
                     width: '140px'
                   }}
                 >
-                  {generatingStates[selectedSpecies.id]?.image ? 'Generating...' : 
+                  {generatingStates[selectedSpecies.id]?.image ? 'Generating...' :
                    speciesMedia?.images.length ? 'New Image' : 'Generate Image'}
                 </button>
 

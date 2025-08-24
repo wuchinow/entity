@@ -13,6 +13,10 @@ const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN!,
 });
 
+// Simple concurrency tracking - no queue, just limits
+let currentImageGenerations = 0;
+const MAX_CONCURRENT_IMAGES = 5; // Allow many images concurrently
+
 export async function POST(request: NextRequest) {
   let speciesId: string | null = null;
   
@@ -22,6 +26,14 @@ export async function POST(request: NextRequest) {
 
     if (!speciesId) {
       return NextResponse.json({ error: 'Species ID is required' }, { status: 400 });
+    }
+
+    // Check if we're at the concurrent limit
+    if (currentImageGenerations >= MAX_CONCURRENT_IMAGES) {
+      return NextResponse.json({
+        error: 'Too many image generations in progress. Please try again in a moment.',
+        status: 'rate_limited'
+      }, { status: 429 });
     }
 
     // Get species data and check current status
@@ -34,6 +46,17 @@ export async function POST(request: NextRequest) {
     if (speciesError || !species) {
       return NextResponse.json({ error: 'Species not found' }, { status: 404 });
     }
+
+    // Check if already generating for this species
+    if (species.generation_status === 'generating_image') {
+      return NextResponse.json({
+        error: 'Image generation already in progress for this species',
+        status: 'duplicate_request'
+      }, { status: 400 });
+    }
+
+    // Increment counter
+    currentImageGenerations++;
 
     // Get next version number for this species' images
     const { data: existingImages } = await supabase
@@ -56,10 +79,47 @@ export async function POST(request: NextRequest) {
       .eq('id', speciesId);
 
     if (statusError) {
+      currentImageGenerations--; // Decrement on error
       console.error('Error updating species status:', statusError);
       return NextResponse.json({ error: 'Failed to update species status' }, { status: 500 });
     }
 
+    // Process generation asynchronously
+    processImageGeneration(speciesId, species, nextVersion).finally(() => {
+      currentImageGenerations--; // Always decrement when done
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: 'Image generation started',
+      status: 'generating'
+    });
+
+  } catch (error) {
+    currentImageGenerations--; // Decrement on error
+    console.error('Error starting image generation:', error);
+    
+    // Update status to error
+    if (speciesId) {
+      try {
+        await supabase
+          .from('species')
+          .update({ generation_status: 'error' })
+          .eq('id', speciesId);
+      } catch (e) {
+        console.error('Error updating status to error:', e);
+      }
+    }
+
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Failed to start image generation' },
+      { status: 500 }
+    );
+  }
+}
+
+async function processImageGeneration(speciesId: string, species: any, nextVersion: number) {
+  try {
     // Create prompt for image generation with null checks
     const commonName = species.common_name || 'Unknown Species';
     const scientificName = species.scientific_name || 'Unknown';
@@ -70,7 +130,7 @@ export async function POST(request: NextRequest) {
 
     console.log('Generating image with prompt:', prompt);
 
-    // Generate image using Replicate SDXL (free model) - using prediction API for proper URL handling
+    // Generate image using Replicate SDXL
     const prediction = await replicate.predictions.create({
       version: "39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b1aa35c5565e08b",
       input: {
@@ -98,9 +158,6 @@ export async function POST(request: NextRequest) {
 
     const imageUrl = completedPrediction.output?.[0];
     
-    console.log('Prediction output:', completedPrediction.output);
-    console.log('Image URL:', imageUrl);
-
     if (!imageUrl || typeof imageUrl !== 'string') {
       throw new Error('No valid image URL returned from Replicate');
     }
@@ -110,42 +167,23 @@ export async function POST(request: NextRequest) {
     let supabaseImagePath = '';
     let supabaseImageUrl = '';
     
-    try {
-      const storageResult = await MediaStorageService.downloadAndStore(
-        imageUrl,
-        speciesId,
-        'image',
-        species.common_name,
-        nextVersion
-      );
-      
-      supabaseImagePath = storageResult.path;
-      supabaseImageUrl = storageResult.publicUrl;
-      
-      console.log('✅ Image stored successfully in Supabase Storage:', {
-        path: supabaseImagePath,
-        url: supabaseImageUrl
-      });
-    } catch (storageError) {
-      console.error('❌ CRITICAL: Failed to store image in Supabase Storage:', storageError);
-      
-      // Update species with error status to indicate storage failure
-      await supabase
-        .from('species')
-        .update({
-          generation_status: 'error',
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', speciesId);
-      
-      return NextResponse.json({
-        error: 'Failed to store image permanently. This is a critical issue that needs immediate attention.',
-        details: storageError instanceof Error ? storageError.message : 'Unknown storage error',
-        replicateUrl: imageUrl // Provide the temporary URL for debugging
-      }, { status: 500 });
-    }
+    const storageResult = await MediaStorageService.downloadAndStore(
+      imageUrl,
+      speciesId,
+      'image',
+      species.common_name,
+      nextVersion
+    );
+    
+    supabaseImagePath = storageResult.path;
+    supabaseImageUrl = storageResult.publicUrl;
+    
+    console.log('✅ Image stored successfully in Supabase Storage:', {
+      path: supabaseImagePath,
+      url: supabaseImageUrl
+    });
 
-    // Implement media versioning directly without RPC function
+    // Implement media versioning directly
     let updateSuccessful = false;
     
     try {
@@ -161,8 +199,8 @@ export async function POST(request: NextRequest) {
           supabase_path: supabaseImagePath || null,
           replicate_prediction_id: prediction.id,
           generation_prompt: `A photorealistic image of ${species.common_name} (${species.scientific_name})`,
-          is_primary: nextVersion === 1, // First version is primary
-          is_selected_for_exhibit: nextVersion === 1 // First version is for exhibit
+          is_primary: nextVersion === 1,
+          is_selected_for_exhibit: nextVersion === 1
         })
         .select()
         .single();
@@ -208,8 +246,7 @@ export async function POST(request: NextRequest) {
         .eq('id', speciesId);
 
       if (updateError) {
-        console.error('Error updating species with image:', updateError);
-        return NextResponse.json({ error: 'Failed to save image' }, { status: 500 });
+        throw new Error('Failed to save image to database');
       }
       console.log('✅ Used legacy update system');
     }
@@ -227,38 +264,13 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    return NextResponse.json({
-      success: true,
-      imageUrl: supabaseImageUrl || imageUrl, // Prefer Supabase URL
-      replicateUrl: imageUrl,
-      supabaseUrl: supabaseImageUrl,
-      species: {
-        ...species,
-        image_url: imageUrl,
-        supabase_image_url: supabaseImageUrl,
-        supabase_image_path: supabaseImagePath,
-        generation_status: 'image_generated'
-      }
-    });
-
   } catch (error) {
-    console.error('Error generating image:', error);
+    console.error('Error in image generation process:', error);
     
     // Update status to error
-    if (speciesId) {
-      try {
-        await supabase
-          .from('species')
-          .update({ generation_status: 'error' })
-          .eq('id', speciesId);
-      } catch (e) {
-        console.error('Error updating status to error:', e);
-      }
-    }
-
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to generate image' },
-      { status: 500 }
-    );
+    await supabase
+      .from('species')
+      .update({ generation_status: 'error' })
+      .eq('id', speciesId);
   }
 }

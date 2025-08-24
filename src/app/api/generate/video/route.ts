@@ -13,14 +13,18 @@ const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN!,
 });
 
+// Simple concurrency tracking for videos
+let currentVideoGenerations = 0;
+const MAX_CONCURRENT_VIDEOS = 3; // Allow 3 videos concurrently
+
 export async function POST(request: NextRequest) {
   let speciesId: string | null = null;
   
   try {
     const body = await request.json();
     speciesId = body.speciesId;
-    const imageUrl = body.imageUrl; // Get image URL from frontend
-    const seedImageVersion = body.seedImageVersion; // Version of the image being used as seed
+    const imageUrl = body.imageUrl;
+    const seedImageVersion = body.seedImageVersion;
 
     if (!speciesId) {
       return NextResponse.json({ error: 'Species ID is required' }, { status: 400 });
@@ -28,6 +32,14 @@ export async function POST(request: NextRequest) {
 
     if (!imageUrl) {
       return NextResponse.json({ error: 'Image URL is required for video generation' }, { status: 400 });
+    }
+
+    // Check if we're at the concurrent limit
+    if (currentVideoGenerations >= MAX_CONCURRENT_VIDEOS) {
+      return NextResponse.json({
+        error: 'Too many video generations in progress. Please try again in a moment.',
+        status: 'rate_limited'
+      }, { status: 429 });
     }
 
     // Get species data for name/info and check current status
@@ -40,6 +52,17 @@ export async function POST(request: NextRequest) {
     if (speciesError || !species) {
       return NextResponse.json({ error: 'Species not found' }, { status: 404 });
     }
+
+    // Check if already generating for this species
+    if (species.generation_status === 'generating_video') {
+      return NextResponse.json({
+        error: 'Video generation already in progress for this species',
+        status: 'duplicate_request'
+      }, { status: 400 });
+    }
+
+    // Increment counter
+    currentVideoGenerations++;
 
     // Get next version number for this species' videos
     const { data: existingVideos } = await supabase
@@ -62,29 +85,63 @@ export async function POST(request: NextRequest) {
       .eq('id', speciesId);
 
     if (statusError) {
+      currentVideoGenerations--; // Decrement on error
       console.error('Error updating species status:', statusError);
       return NextResponse.json({ error: 'Failed to update species status' }, { status: 500 });
     }
 
+    // Process generation asynchronously
+    processVideoGeneration(speciesId, species, imageUrl, seedImageVersion, nextVersion).finally(() => {
+      currentVideoGenerations--; // Always decrement when done
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: 'Video generation started',
+      status: 'generating'
+    });
+
+  } catch (error) {
+    currentVideoGenerations--; // Decrement on error
+    console.error('Error starting video generation:', error);
+    
+    // Update status to error
+    if (speciesId) {
+      try {
+        await supabase
+          .from('species')
+          .update({ generation_status: 'error' })
+          .eq('id', speciesId);
+      } catch (e) {
+        console.error('Error updating status to error:', e);
+      }
+    }
+
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Failed to start video generation' },
+      { status: 500 }
+    );
+  }
+}
+
+async function processVideoGeneration(
+  speciesId: string,
+  species: any,
+  imageUrl: string,
+  seedImageVersion: number | undefined,
+  nextVersion: number
+) {
+  try {
     console.log('Generating video for species:', species.common_name);
     console.log('Using image URL:', imageUrl);
 
     // Generate video using Replicate Kling v1.6 Standard (image-to-video)
-    console.log('Creating Replicate prediction with input:', {
-      model: "kwaivgi/kling-v1.6-standard",
-      prompt: `A photorealistic video of ${species.common_name} (${species.scientific_name}) in its natural habitat. The extinct ${species.common_name} moves naturally through its environment, showing realistic behavior and movement patterns.`,
-      start_image: imageUrl,
-      duration: 10,
-      aspect_ratio: "16:9",
-      camera_movement: "none"
-    });
-    
     const prediction = await replicate.predictions.create({
       model: "kwaivgi/kling-v1.6-standard",
       input: {
         prompt: `A photorealistic video of ${species.common_name} (${species.scientific_name}) in its natural habitat. The extinct ${species.common_name} moves naturally through its environment, showing realistic behavior and movement patterns.`,
-        start_image: imageUrl, // Use the image URL from frontend
-        duration: 10, // 10 second video (integer)
+        start_image: imageUrl,
+        duration: 10,
         aspect_ratio: "16:9",
         camera_movement: "none"
       }
@@ -118,54 +175,29 @@ export async function POST(request: NextRequest) {
 
     const videoUrl = completedPrediction.output;
     
-    console.log('Video generation output:', completedPrediction.output);
-    console.log('Video URL:', videoUrl);
-
     if (!videoUrl || typeof videoUrl !== 'string') {
       throw new Error('No valid video URL returned from Replicate');
     }
 
     // Download and store the video in Supabase Storage
     console.log('Downloading and storing video in Supabase Storage...');
-    let supabaseVideoPath = '';
-    let supabaseVideoUrl = '';
+    const storageResult = await MediaStorageService.downloadAndStore(
+      videoUrl,
+      speciesId,
+      'video',
+      species.common_name,
+      nextVersion
+    );
     
-    try {
-      const storageResult = await MediaStorageService.downloadAndStore(
-        videoUrl,
-        speciesId,
-        'video',
-        species.common_name,
-        nextVersion
-      );
-      
-      supabaseVideoPath = storageResult.path;
-      supabaseVideoUrl = storageResult.publicUrl;
-      
-      console.log('✅ Video stored successfully in Supabase Storage:', {
-        path: supabaseVideoPath,
-        url: supabaseVideoUrl
-      });
-    } catch (storageError) {
-      console.error('❌ CRITICAL: Failed to store video in Supabase Storage:', storageError);
-      
-      // Update species with error status to indicate storage failure
-      await supabase
-        .from('species')
-        .update({
-          generation_status: 'error',
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', speciesId);
-      
-      return NextResponse.json({
-        error: 'Failed to store video permanently. This is a critical issue that needs immediate attention.',
-        details: storageError instanceof Error ? storageError.message : 'Unknown storage error',
-        replicateUrl: videoUrl // Provide the temporary URL for debugging
-      }, { status: 500 });
-    }
+    const supabaseVideoPath = storageResult.path;
+    const supabaseVideoUrl = storageResult.publicUrl;
+    
+    console.log('✅ Video stored successfully in Supabase Storage:', {
+      path: supabaseVideoPath,
+      url: supabaseVideoUrl
+    });
 
-    // Implement media versioning directly without RPC function
+    // Implement media versioning directly
     let updateSuccessful = false;
     
     try {
@@ -183,8 +215,8 @@ export async function POST(request: NextRequest) {
           generation_prompt: `A photorealistic video of ${species.common_name} (${species.scientific_name})`,
           seed_image_version: seedImageVersion || null,
           seed_image_url: imageUrl,
-          is_primary: nextVersion === 1, // First version is primary
-          is_selected_for_exhibit: nextVersion === 1 // First version is for exhibit
+          is_primary: nextVersion === 1,
+          is_selected_for_exhibit: nextVersion === 1
         })
         .select()
         .single();
@@ -230,8 +262,7 @@ export async function POST(request: NextRequest) {
         .eq('id', speciesId);
 
       if (updateError) {
-        console.error('Error updating species with video:', updateError);
-        return NextResponse.json({ error: 'Failed to save video' }, { status: 500 });
+        throw new Error('Failed to save video to database');
       }
       console.log('✅ Used legacy update system');
     }
@@ -250,38 +281,13 @@ export async function POST(request: NextRequest) {
       }
     });
 
-    return NextResponse.json({
-      success: true,
-      videoUrl: supabaseVideoUrl || videoUrl, // Prefer Supabase URL
-      replicateUrl: videoUrl,
-      supabaseUrl: supabaseVideoUrl,
-      species: {
-        ...species,
-        video_url: videoUrl,
-        supabase_video_url: supabaseVideoUrl,
-        supabase_video_path: supabaseVideoPath,
-        generation_status: 'completed'
-      }
-    });
-
   } catch (error) {
-    console.error('Error generating video:', error);
+    console.error('Error in video generation process:', error);
     
     // Update status to error
-    if (speciesId) {
-      try {
-        await supabase
-          .from('species')
-          .update({ generation_status: 'error' })
-          .eq('id', speciesId);
-      } catch (e) {
-        console.error('Error updating status to error:', e);
-      }
-    }
-
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to generate video' },
-      { status: 500 }
-    );
+    await supabase
+      .from('species')
+      .update({ generation_status: 'error' })
+      .eq('id', speciesId);
   }
 }
