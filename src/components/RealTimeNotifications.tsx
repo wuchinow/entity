@@ -17,21 +17,46 @@ export function RealTimeNotifications() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
   useEffect(() => {
-    if (lastUpdate && lastUpdate.type === 'media_generated') {
-      const notification: Notification = {
-        id: `${lastUpdate.timestamp}-${lastUpdate.data?.speciesId}`,
-        message: `New ${lastUpdate.data?.mediaType} generated for ${lastUpdate.data?.speciesName}`,
-        type: 'success',
-        timestamp: lastUpdate.timestamp,
-        data: lastUpdate.data
-      };
+    if (lastUpdate) {
+      let notification: Notification | null = null;
 
-      setNotifications(prev => [notification, ...prev.slice(0, 4)]); // Keep only 5 notifications
+      if (lastUpdate.type === 'media_generated') {
+        notification = {
+          id: `${lastUpdate.timestamp}-${lastUpdate.data?.speciesId}`,
+          message: `New ${lastUpdate.data?.mediaType} generated for ${lastUpdate.data?.speciesName}`,
+          type: 'success',
+          timestamp: lastUpdate.timestamp,
+          data: lastUpdate.data
+        };
+      } else if (lastUpdate.type === 'species_updated') {
+        const { speciesName, status } = lastUpdate.data || {};
+        if (status === 'completed') {
+          notification = {
+            id: `${lastUpdate.timestamp}-${lastUpdate.data?.speciesId}-fixed`,
+            message: `Error status fixed for ${speciesName}`,
+            type: 'success',
+            timestamp: lastUpdate.timestamp,
+            data: lastUpdate.data
+          };
+        } else if (status === 'pending') {
+          notification = {
+            id: `${lastUpdate.timestamp}-${lastUpdate.data?.speciesId}-retry`,
+            message: `Retrying generation for ${speciesName}`,
+            type: 'info',
+            timestamp: lastUpdate.timestamp,
+            data: lastUpdate.data
+          };
+        }
+      }
 
-      // Auto-remove notification after 5 seconds
-      setTimeout(() => {
-        setNotifications(prev => prev.filter(n => n.id !== notification.id));
-      }, 5000);
+      if (notification) {
+        setNotifications(prev => [notification, ...prev.slice(0, 4)]); // Keep only 5 notifications
+
+        // Auto-remove notification after 5 seconds
+        setTimeout(() => {
+          setNotifications(prev => prev.filter(n => n.id !== notification!.id));
+        }, 5000);
+      }
     }
   }, [lastUpdate]);
 

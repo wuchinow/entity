@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Species, SpeciesMedia } from '@/types';
 import Image from 'next/image';
+import { useAutoErrorRecovery } from '@/hooks/useAutoErrorRecovery';
 
 interface ExhibitPageProps {}
 
@@ -15,6 +16,12 @@ export default function ExhibitPage({}: ExhibitPageProps) {
   const [loading, setLoading] = useState(true);
   const [mediaLoading, setMediaLoading] = useState(false);
   const [showVideo, setShowVideo] = useState(false);
+
+  // Auto error recovery for exhibit
+  useAutoErrorRecovery({
+    enabled: true,
+    interval: 60000, // Check every minute for exhibit
+  });
 
   // Fetch all species on component mount
   useEffect(() => {

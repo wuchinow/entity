@@ -13,6 +13,7 @@ export interface RealTimeUpdate {
     url?: string;
     speciesName?: string;
     seedImageVersion?: number;
+    status?: string;
   };
 }
 

@@ -63,9 +63,50 @@ export async function GET(request: NextRequest) {
 
     console.log(`Successfully fetched ${species?.length || 0} species`);
     
+    // Enhance species data with latest media URLs for thumbnails
+    let enhancedSpecies = species || [];
+    
+    if (enhancedSpecies.length > 0) {
+      // Get latest media for all species to update thumbnails
+      const speciesIds = enhancedSpecies.map(s => s.id);
+      
+      const { data: latestMedia } = await supabase
+        .from('species_media')
+        .select('species_id, media_type, supabase_url, replicate_url, version_number, is_primary')
+        .in('species_id', speciesIds)
+        .not('supabase_url', 'is', null)
+        .order('species_id')
+        .order('media_type')
+        .order('version_number', { ascending: false });
+
+      // Create a map of latest media for each species
+      const mediaMap = new Map();
+      
+      if (latestMedia) {
+        for (const media of latestMedia) {
+          const key = `${media.species_id}-${media.media_type}`;
+          if (!mediaMap.has(key)) {
+            // Store the latest (highest version) media for each type
+            mediaMap.set(key, media.supabase_url || media.replicate_url);
+          }
+        }
+      }
+
+      // Update species with latest media URLs
+      enhancedSpecies = enhancedSpecies.map(species => ({
+        ...species,
+        // Update with latest media URLs for thumbnails, fallback to legacy URLs
+        supabase_image_url: mediaMap.get(`${species.id}-image`) || species.supabase_image_url,
+        supabase_video_url: mediaMap.get(`${species.id}-video`) || species.supabase_video_url,
+        // Also update legacy URLs for backward compatibility
+        image_url: mediaMap.get(`${species.id}-image`) || species.image_url,
+        video_url: mediaMap.get(`${species.id}-video`) || species.video_url,
+      }));
+    }
+    
     const response: any = {
-      species: species || [],
-      count: species?.length || 0
+      species: enhancedSpecies,
+      count: enhancedSpecies.length
     };
 
     // Include active list info if requested

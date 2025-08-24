@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { RealTimeNotifications } from '@/components/RealTimeNotifications';
 import { useRealTimeUpdates } from '@/hooks/useRealTimeUpdates';
+import { useAutoErrorRecovery } from '@/hooks/useAutoErrorRecovery';
 
 interface Species {
   id: string;
@@ -65,6 +66,23 @@ export default function GalleryPage() {
 
   // Real-time updates hook
   const { lastUpdate } = useRealTimeUpdates();
+
+  // Auto error recovery hook
+  const { stats: recoveryStats, manualRecovery } = useAutoErrorRecovery({
+    enabled: true,
+    interval: 45000, // Check every 45 seconds
+    onRecovery: (stats) => {
+      if (stats.totalFixed > 0 || stats.totalRetried > 0) {
+        const message = stats.totalFixed > 0
+          ? `Auto-fixed ${stats.totalFixed} species with error status`
+          : `Retrying ${stats.totalRetried} species with old errors`;
+        setMessage(message);
+        setTimeout(() => setMessage(''), 3000);
+      }
+      // Always refresh species list to show updated statuses and thumbnails
+      loadSpecies(true);
+    }
+  });
 
   // Initialize Supabase client for real-time subscriptions
   const supabase = createClient(
@@ -156,7 +174,7 @@ export default function GalleryPage() {
         
         console.log('Real-time media update received:', lastUpdate);
         
-        // Always reload species list to update thumbnails
+        // Always reload species list to update thumbnails immediately
         loadSpecies(true);
         
         // Only handle display updates for the currently selected species
@@ -180,13 +198,18 @@ export default function GalleryPage() {
           });
         }
       } else if (lastUpdate.type === 'species_updated') {
-        // Handle species list thumbnail updates
-        const { speciesId, mediaType } = lastUpdate.data || {};
+        // Handle species list thumbnail updates and status changes
+        const { speciesId, mediaType, status } = lastUpdate.data || {};
         
-        console.log('Real-time species thumbnail update received:', lastUpdate);
+        console.log('Real-time species update received:', lastUpdate);
         
-        // Always reload species list to show updated thumbnails
+        // Always reload species list to show updated thumbnails and statuses
         loadSpecies(true);
+        
+        // If this is the selected species, also reload its media
+        if (selectedSpecies && speciesId === selectedSpecies.id) {
+          loadSpeciesMedia(selectedSpecies.id);
+        }
       }
     }
   }, [lastUpdate, selectedSpecies?.id]);
@@ -275,20 +298,9 @@ export default function GalleryPage() {
   const refreshAllSpecies = async () => {
     console.log('Refreshing all species data and fixing error states...');
     try {
-      // First, fix any error statuses for species that have media
-      const fixResponse = await fetch('/api/admin/fix-error-statuses', {
-        method: 'POST'
-      });
+      // Use the new auto-recovery system
+      await manualRecovery();
       
-      if (fixResponse.ok) {
-        const fixResult = await fixResponse.json();
-        console.log('Fixed error statuses:', fixResult);
-        if (fixResult.fixed > 0) {
-          setMessage(`Fixed ${fixResult.fixed} species with incorrect error status`);
-          setTimeout(() => setMessage(''), 5000);
-        }
-      }
-
       // Then refresh all species data
       await loadSpecies(false);
       console.log('All species data refreshed successfully');
@@ -670,7 +682,7 @@ export default function GalleryPage() {
                   transition: 'all 0.2s ease',
                   fontFamily: 'inherit'
                 }}
-                title="Refresh all species data and fix error states"
+                title="Refresh all species data and run error recovery"
               >
                 ↻
               </button>
@@ -684,17 +696,28 @@ export default function GalleryPage() {
           }}>
             {species.map((spec) => {
               const getStatusIndicator = () => {
-                // Show error status always
-                if (spec.generation_status === 'error') return { text: 'Error', color: '#f44336' };
+                // Check if species has any media (including from species_media table)
+                const hasImage = getBestImageUrl(spec);
+                const hasVideo = getBestVideoUrl(spec);
+                const hasAnyMedia = hasImage || hasVideo;
+                
+                // If species has media, never show error status (it should be auto-fixed)
+                if (hasAnyMedia) {
+                  return null;
+                }
+                
+                // Only show error status if it's a genuine error (no media available)
+                if (spec.generation_status === 'error') {
+                  return { text: 'Error', color: '#f44336' };
+                }
                 
                 // Only show generating status if we don't have ANY media yet
-                if ((spec.generation_status === 'generating_image' || spec.generation_status === 'generating_video')
-                    && !getBestImageUrl(spec) && !getBestVideoUrl(spec)) {
+                if (spec.generation_status === 'generating_image' || spec.generation_status === 'generating_video') {
                   return { text: 'Generating...', color: '#FF9800' };
                 }
                 
                 // Only show "Pending" for species with no media at all
-                if (!getBestImageUrl(spec) && !getBestVideoUrl(spec) && spec.generation_status === 'pending') {
+                if (spec.generation_status === 'pending') {
                   return { text: 'Pending', color: '#666' };
                 }
                 
