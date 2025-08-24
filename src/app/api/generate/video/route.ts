@@ -221,28 +221,73 @@ async function processVideoGeneration(
         .select()
         .single();
 
-      if (!mediaError && mediaResult) {
-        // Update species counters and current version
-        const { error: speciesUpdateError } = await supabase
-          .from('species')
-          .update({
-            total_video_versions: nextVersion,
-            current_displayed_video_version: nextVersion,
-            generation_status: 'completed',
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', speciesId);
+      if (mediaError) {
+        console.error('❌ Media insert error:', mediaError);
+        throw new Error(`Failed to insert media record: ${mediaError.message}`);
+      }
 
-        if (!speciesUpdateError) {
-          updateSuccessful = true;
-          console.log('✅ Used direct video versioning system - version', nextVersion);
+      if (mediaResult) {
+        // Update species counters, current version, AND thumbnail fields for species list
+        const updateData: any = {
+          generation_status: 'completed',
+          updated_at: new Date().toISOString(),
+          // Always update thumbnail fields so species list shows latest media
+          video_url: videoUrl,
+          video_generated_at: new Date().toISOString()
+        };
+
+        // Include Supabase URLs if available
+        if (supabaseVideoPath && supabaseVideoUrl) {
+          updateData.supabase_video_path = supabaseVideoPath;
+          updateData.supabase_video_url = supabaseVideoUrl;
         }
+
+        // Try to update with version fields first, fall back if schema doesn't support them
+        let speciesUpdateError: any = null;
+        
+        try {
+          // First try with version fields
+          const updateDataWithVersions = {
+            ...updateData,
+            total_video_versions: nextVersion,
+            current_displayed_video_version: nextVersion
+          };
+          
+          const { error } = await supabase
+            .from('species')
+            .update(updateDataWithVersions)
+            .eq('id', speciesId);
+            
+          speciesUpdateError = error;
+        } catch (e) {
+          console.log('📝 Version fields not available, trying without them...');
+          speciesUpdateError = e;
+        }
+        
+        // If version fields failed, try without them
+        if (speciesUpdateError && (speciesUpdateError.message?.includes('current_displayed_video_version') || speciesUpdateError.code === 'PGRST204')) {
+          console.log('📝 Retrying update without version fields...');
+          const { error } = await supabase
+            .from('species')
+            .update(updateData)
+            .eq('id', speciesId);
+          speciesUpdateError = error;
+        }
+
+        if (speciesUpdateError) {
+          console.error('❌ Species update error:', speciesUpdateError);
+          throw new Error(`Failed to update species: ${speciesUpdateError.message || 'Unknown database error'}`);
+        }
+
+        updateSuccessful = true;
+        console.log('✅ Used direct video versioning system with thumbnail update - version', nextVersion);
       }
     } catch (directError) {
+      console.error('❌ Direct video system failed:', directError);
       console.log('📝 Direct video system failed, using legacy update');
     }
 
-    // If direct versioning failed, use legacy update
+    // If direct versioning failed, use legacy update - ALWAYS update status to completed
     if (!updateSuccessful) {
       const updateData: any = {
         video_url: videoUrl,
@@ -262,11 +307,23 @@ async function processVideoGeneration(
         .eq('id', speciesId);
 
       if (updateError) {
-        throw new Error('Failed to save video to database');
+        console.error('❌ CRITICAL: Legacy update failed:', updateError);
+        // Still try to update status to completed to prevent stuck states
+        await supabase
+          .from('species')
+          .update({
+            generation_status: 'completed',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', speciesId);
+        throw new Error(`Failed to save video to database: ${updateError.message}`);
       }
       console.log('✅ Used legacy update system');
     }
 
+    // ALWAYS broadcast real-time updates regardless of which system was used
+    console.log('📡 Broadcasting real-time updates for video completion...');
+    
     // Broadcast real-time update to all connected clients
     broadcastUpdate({
       type: 'media_generated',
@@ -281,13 +338,47 @@ async function processVideoGeneration(
       }
     });
 
+    // Also broadcast a species list update to refresh thumbnails
+    broadcastUpdate({
+      type: 'species_updated',
+      timestamp: new Date().toISOString(),
+      data: {
+        speciesId: speciesId,
+        speciesName: species.common_name,
+        thumbnailUrl: supabaseVideoUrl || videoUrl,
+        mediaType: 'video'
+      }
+    });
+
+    console.log('✅ Video generation completed successfully for:', species.common_name);
+
   } catch (error) {
-    console.error('Error in video generation process:', error);
+    console.error('❌ CRITICAL ERROR in video generation process:', error);
     
-    // Update status to error
-    await supabase
-      .from('species')
-      .update({ generation_status: 'error' })
-      .eq('id', speciesId);
+    // ALWAYS update status to prevent stuck states
+    try {
+      await supabase
+        .from('species')
+        .update({
+          generation_status: 'error',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', speciesId);
+      console.log('✅ Updated species status to error');
+    } catch (statusError) {
+      console.error('❌ CRITICAL: Failed to update status to error:', statusError);
+    }
+
+    // Broadcast error update
+    broadcastUpdate({
+      type: 'generation_failed',
+      timestamp: new Date().toISOString(),
+      data: {
+        speciesId: speciesId,
+        mediaType: 'video',
+        error: error instanceof Error ? error.message : 'Unknown error',
+        speciesName: species.common_name
+      }
+    });
   }
 }

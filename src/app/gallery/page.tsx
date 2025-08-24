@@ -150,33 +150,43 @@ export default function GalleryPage() {
 
   // Handle real-time media updates
   useEffect(() => {
-    if (lastUpdate && lastUpdate.type === 'media_generated') {
-      const { speciesId, mediaType, version, url } = lastUpdate.data || {};
-      
-      console.log('Real-time media update received:', lastUpdate);
-      
-      // Always reload species list to update thumbnails
-      loadSpecies(true);
-      
-      // Only handle display updates for the currently selected species
-      if (selectedSpecies && speciesId === selectedSpecies.id) {
-        console.log('Real-time media update for selected species:', lastUpdate);
+    if (lastUpdate) {
+      if (lastUpdate.type === 'media_generated') {
+        const { speciesId, mediaType, version, url } = lastUpdate.data || {};
         
-        // Reload media to get the latest versions
-        loadSpeciesMedia(selectedSpecies.id).then(() => {
-          // Auto-switch to the newly generated media type and version
-          if (mediaType === 'image' && version && url) {
-            setSelectedMedia('image');
-            setCurrentImageVersion(version);
-            setCurrentImageUrl(url);
-            console.log('Real-time: Switched to new image version:', version, url);
-          } else if (mediaType === 'video' && version && url) {
-            setSelectedMedia('video');
-            setCurrentVideoVersion(version);
-            setCurrentVideoUrl(url);
-            console.log('Real-time: Switched to new video version:', version, url);
-          }
-        });
+        console.log('Real-time media update received:', lastUpdate);
+        
+        // Always reload species list to update thumbnails
+        loadSpecies(true);
+        
+        // Only handle display updates for the currently selected species
+        if (selectedSpecies && speciesId === selectedSpecies.id) {
+          console.log('Real-time media update for selected species:', lastUpdate);
+          
+          // Reload media to get the latest versions
+          loadSpeciesMedia(selectedSpecies.id).then(() => {
+            // Auto-switch to the newly generated media type and version
+            if (mediaType === 'image' && version && url) {
+              setSelectedMedia('image');
+              setCurrentImageVersion(version);
+              setCurrentImageUrl(url);
+              console.log('Real-time: Switched to new image version:', version, url);
+            } else if (mediaType === 'video' && version && url) {
+              setSelectedMedia('video');
+              setCurrentVideoVersion(version);
+              setCurrentVideoUrl(url);
+              console.log('Real-time: Switched to new video version:', version, url);
+            }
+          });
+        }
+      } else if (lastUpdate.type === 'species_updated') {
+        // Handle species list thumbnail updates
+        const { speciesId, mediaType } = lastUpdate.data || {};
+        
+        console.log('Real-time species thumbnail update received:', lastUpdate);
+        
+        // Always reload species list to show updated thumbnails
+        loadSpecies(true);
       }
     }
   }, [lastUpdate, selectedSpecies?.id]);
@@ -248,6 +258,44 @@ export default function GalleryPage() {
       console.error('Error loading species media:', error);
     } finally {
       setLoadingMedia(false);
+    }
+  };
+
+  // Add refresh function for manual media refresh
+  const refreshCurrentMedia = async () => {
+    if (selectedSpecies) {
+      console.log('Manually refreshing media for:', selectedSpecies.common_name);
+      await loadSpeciesMedia(selectedSpecies.id);
+      // Also refresh the species list to update thumbnails
+      await loadSpecies(true);
+    }
+  };
+
+  // Add function to refresh all species data and fix error states
+  const refreshAllSpecies = async () => {
+    console.log('Refreshing all species data and fixing error states...');
+    try {
+      // First, fix any error statuses for species that have media
+      const fixResponse = await fetch('/api/admin/fix-error-statuses', {
+        method: 'POST'
+      });
+      
+      if (fixResponse.ok) {
+        const fixResult = await fixResponse.json();
+        console.log('Fixed error statuses:', fixResult);
+        if (fixResult.fixed > 0) {
+          setMessage(`Fixed ${fixResult.fixed} species with incorrect error status`);
+          setTimeout(() => setMessage(''), 5000);
+        }
+      }
+
+      // Then refresh all species data
+      await loadSpecies(false);
+      console.log('All species data refreshed successfully');
+    } catch (error) {
+      console.error('Error refreshing all species:', error);
+      setMessage('Error refreshing species data');
+      setTimeout(() => setMessage(''), 5000);
     }
   };
 
@@ -604,9 +652,29 @@ export default function GalleryPage() {
             borderBottom: '1px solid rgba(255,255,255,0.1)',
             background: 'rgba(0,0,0,0.2)'
           }}>
-            <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '300', marginBottom: '10px' }}>
-              Extinct Species ({species.length})
-            </h2>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '300' }}>
+                Extinct Species ({species.length})
+              </h2>
+              <button
+                onClick={refreshAllSpecies}
+                style={{
+                  background: 'rgba(34, 197, 94, 0.15)',
+                  border: '1px solid rgba(34, 197, 94, 0.3)',
+                  borderRadius: '4px',
+                  padding: '4px 8px',
+                  color: '#4ade80',
+                  fontSize: '11px',
+                  cursor: 'pointer',
+                  fontWeight: '400',
+                  transition: 'all 0.2s ease',
+                  fontFamily: 'inherit'
+                }}
+                title="Refresh all species data and fix error states"
+              >
+                ↻
+              </button>
+            </div>
           </div>
           
           <div className="species-list-scroll" style={{
@@ -1272,6 +1340,7 @@ export default function GalleryPage() {
                      speciesMedia?.videos.length ? 'New Video' : 'Generate Video'}
                   </button>
                 )}
+
               </div>
             </>
           )}

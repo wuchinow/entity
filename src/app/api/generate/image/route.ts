@@ -206,20 +206,31 @@ async function processImageGeneration(speciesId: string, species: any, nextVersi
         .single();
 
       if (!mediaError && mediaResult) {
-        // Update species counters and current version
+        // Update species counters, current version, AND thumbnail fields for species list
+        const updateData: any = {
+          total_image_versions: nextVersion,
+          current_displayed_image_version: nextVersion,
+          generation_status: 'completed',
+          updated_at: new Date().toISOString(),
+          // Always update thumbnail fields so species list shows latest media
+          image_url: imageUrl,
+          image_generated_at: new Date().toISOString()
+        };
+
+        // Include Supabase URLs if available
+        if (supabaseImagePath && supabaseImageUrl) {
+          updateData.supabase_image_path = supabaseImagePath;
+          updateData.supabase_image_url = supabaseImageUrl;
+        }
+
         const { error: speciesUpdateError } = await supabase
           .from('species')
-          .update({
-            total_image_versions: nextVersion,
-            current_displayed_image_version: nextVersion,
-            generation_status: 'completed',
-            updated_at: new Date().toISOString()
-          })
+          .update(updateData)
           .eq('id', speciesId);
 
         if (!speciesUpdateError) {
           updateSuccessful = true;
-          console.log('✅ Used direct media versioning system - version', nextVersion);
+          console.log('✅ Used direct media versioning system with thumbnail update - version', nextVersion);
         }
       }
     } catch (directError) {
@@ -251,6 +262,7 @@ async function processImageGeneration(speciesId: string, species: any, nextVersi
       console.log('✅ Used legacy update system');
     }
 
+    // ALWAYS broadcast real-time updates regardless of which system was used
     // Broadcast real-time update to all connected clients
     broadcastUpdate({
       type: 'media_generated',
@@ -263,6 +275,19 @@ async function processImageGeneration(speciesId: string, species: any, nextVersi
         speciesName: species.common_name
       }
     });
+
+    // Also broadcast a species list update to refresh thumbnails
+    broadcastUpdate({
+      type: 'species_updated',
+      timestamp: new Date().toISOString(),
+      data: {
+        speciesId: speciesId,
+        speciesName: species.common_name,
+        thumbnailUrl: supabaseImageUrl || imageUrl,
+        mediaType: 'image'
+      }
+    });
+
 
   } catch (error) {
     console.error('Error in image generation process:', error);
