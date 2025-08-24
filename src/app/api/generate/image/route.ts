@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import Replicate from 'replicate';
 import { MediaStorageService } from '@/lib/media-storage';
+import { broadcastUpdate } from '@/app/api/sse/route';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -34,34 +35,38 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Species not found' }, { status: 404 });
     }
 
-    // Prevent duplicate requests - check if already generating image
-    if (species.generation_status === 'generating_image') {
-      return NextResponse.json({
-        error: 'Image generation already in progress for this species',
-        status: 'duplicate_request'
-      }, { status: 409 });
-    }
+    // Get next version number for this species' images
+    const { data: existingImages } = await supabase
+      .from('species_media')
+      .select('version_number')
+      .eq('species_id', speciesId)
+      .eq('media_type', 'image')
+      .order('version_number', { ascending: false })
+      .limit(1);
 
-    // Atomic update to prevent race conditions
-    const { data: updateResult, error: updateError } = await supabase
+    const nextVersion = (existingImages?.[0]?.version_number || 0) + 1;
+
+    // Update species status to generating
+    const { error: statusError } = await supabase
       .from('species')
       .update({
         generation_status: 'generating_image',
         updated_at: new Date().toISOString()
       })
-      .eq('id', speciesId)
-      .eq('generation_status', species.generation_status) // Only update if status hasn't changed
-      .select();
+      .eq('id', speciesId);
 
-    if (updateError || !updateResult || updateResult.length === 0) {
-      return NextResponse.json({
-        error: 'Another generation request is already in progress',
-        status: 'race_condition'
-      }, { status: 409 });
+    if (statusError) {
+      console.error('Error updating species status:', statusError);
+      return NextResponse.json({ error: 'Failed to update species status' }, { status: 500 });
     }
 
-    // Create prompt for image generation
-    const prompt = `A photorealistic image of ${species.common_name} (${species.scientific_name}), an extinct species that lived until ${species.year_extinct}. Show the animal in its natural habitat of ${species.last_location}. High quality, detailed, National Geographic style photography.`;
+    // Create prompt for image generation with null checks
+    const commonName = species.common_name || 'Unknown Species';
+    const scientificName = species.scientific_name || 'Unknown';
+    const yearExtinct = species.year_extinct || 'unknown date';
+    const lastLocation = species.last_location || 'its natural habitat';
+    
+    const prompt = `A photorealistic image of ${commonName} (${scientificName}), an extinct species that lived until ${yearExtinct}. Show the animal in its natural habitat of ${lastLocation}. High quality, detailed, National Geographic style photography.`;
 
     console.log('Generating image with prompt:', prompt);
 
@@ -110,7 +115,8 @@ export async function POST(request: NextRequest) {
         imageUrl,
         speciesId,
         'image',
-        species.common_name
+        species.common_name,
+        nextVersion
       );
       
       supabaseImagePath = storageResult.path;
@@ -139,39 +145,54 @@ export async function POST(request: NextRequest) {
       }, { status: 500 });
     }
 
-    // Try to use new media history system, fall back to legacy if not available
+    // Implement media versioning directly without RPC function
     let updateSuccessful = false;
     
     try {
-      // First try the new media history system
+      // Insert new media version directly into species_media table
       const { data: mediaResult, error: mediaError } = await supabase
-        .rpc('add_species_media', {
-          p_species_id: speciesId,
-          p_media_type: 'image',
-          p_replicate_url: imageUrl,
-          p_supabase_url: supabaseImageUrl || null,
-          p_supabase_path: supabaseImagePath || null,
-          p_replicate_prediction_id: prediction.id
-        });
+        .from('species_media')
+        .insert({
+          species_id: speciesId,
+          media_type: 'image',
+          version_number: nextVersion,
+          replicate_url: imageUrl,
+          supabase_url: supabaseImageUrl || null,
+          supabase_path: supabaseImagePath || null,
+          replicate_prediction_id: prediction.id,
+          generation_prompt: `A photorealistic image of ${species.common_name} (${species.scientific_name})`,
+          is_primary: nextVersion === 1, // First version is primary
+          is_selected_for_exhibit: nextVersion === 1 // First version is for exhibit
+        })
+        .select()
+        .single();
 
-      if (!mediaError) {
-        // Success with new system
-        await supabase
+      if (!mediaError && mediaResult) {
+        // Update species counters and current version
+        const { error: speciesUpdateError } = await supabase
           .from('species')
-          .update({ generation_status: 'generating_video' })
+          .update({
+            total_image_versions: nextVersion,
+            current_displayed_image_version: nextVersion,
+            generation_status: 'completed',
+            updated_at: new Date().toISOString()
+          })
           .eq('id', speciesId);
-        updateSuccessful = true;
-        console.log('✅ Used new media history system');
+
+        if (!speciesUpdateError) {
+          updateSuccessful = true;
+          console.log('✅ Used direct media versioning system - version', nextVersion);
+        }
       }
-    } catch (rpcError) {
-      console.log('📝 New media system not available, using legacy update');
+    } catch (directError) {
+      console.log('📝 Direct media system failed, using legacy update');
     }
 
-    // If new system failed, use legacy update
+    // If direct versioning failed, use legacy update
     if (!updateSuccessful) {
       const updateData: any = {
         image_url: imageUrl,
-        generation_status: 'generating_video',
+        generation_status: 'completed',
         image_generated_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
@@ -192,6 +213,19 @@ export async function POST(request: NextRequest) {
       }
       console.log('✅ Used legacy update system');
     }
+
+    // Broadcast real-time update to all connected clients
+    broadcastUpdate({
+      type: 'media_generated',
+      timestamp: new Date().toISOString(),
+      data: {
+        speciesId: speciesId,
+        mediaType: 'image',
+        version: nextVersion,
+        url: supabaseImageUrl || imageUrl,
+        speciesName: species.common_name
+      }
+    });
 
     return NextResponse.json({
       success: true,

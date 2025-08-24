@@ -92,6 +92,7 @@ export class MediaStorageService {
     speciesId: string,
     type: 'image' | 'video',
     commonName: string,
+    version: number = 1,
     maxRetries: number = 3
   ): Promise<{ path: string; publicUrl: string }> {
     let lastError: Error | null = null;
@@ -147,11 +148,13 @@ export class MediaStorageService {
           else extension = '.mp4'; // default
         }
 
-        // Create file path
+        // Create file path with version support
         const folder = type === 'image' ? this.IMAGE_FOLDER : this.VIDEO_FOLDER;
-        const sanitizedName = commonName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+        const safeName = (commonName || 'unknown_species').toString();
+        const sanitizedName = safeName.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+        const safeSpeciesId = (speciesId || 'unknown').toString();
         const timestamp = Date.now();
-        const fileName = `${sanitizedName}_${speciesId.slice(0, 8)}_${timestamp}${extension}`;
+        const fileName = `${sanitizedName}_${safeSpeciesId.slice(0, 8)}_v${version}_${timestamp}${extension}`;
         const filePath = `${folder}/${fileName}`;
 
         if (!supabaseAdmin) {

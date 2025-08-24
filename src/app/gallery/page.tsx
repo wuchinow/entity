@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { RealTimeNotifications } from '@/components/RealTimeNotifications';
+import { useRealTimeUpdates } from '@/hooks/useRealTimeUpdates';
 
 interface Species {
   id: string;
@@ -19,10 +21,34 @@ interface Species {
   generation_status: string;
 }
 
+interface MediaVersion {
+  version: number;
+  url: string;
+  supabase_url?: string;
+  replicate_url?: string;
+  created_at: string;
+  is_current: boolean;
+  is_favorite?: boolean;
+  is_selected_for_exhibit?: boolean;
+  seed_image_version?: number;
+  seed_image_url?: string;
+}
+
+interface SpeciesMedia {
+  images: MediaVersion[];
+  videos: MediaVersion[];
+  current_image_version: number;
+  current_video_version: number;
+  total_images: number;
+  total_videos: number;
+}
+
 export default function GalleryPage() {
   const [species, setSpecies] = useState<Species[]>([]);
   const [selectedSpecies, setSelectedSpecies] = useState<Species | null>(null);
+  const [speciesMedia, setSpeciesMedia] = useState<SpeciesMedia | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMedia, setLoadingMedia] = useState(false);
   const [generatingStates, setGeneratingStates] = useState<{
     [speciesId: string]: {
       image: boolean;
@@ -31,7 +57,14 @@ export default function GalleryPage() {
   }>({});
   const [message, setMessage] = useState('');
   const [selectedMedia, setSelectedMedia] = useState<'image' | 'video'>('image');
+  const [currentImageVersion, setCurrentImageVersion] = useState(1);
+  const [currentVideoVersion, setCurrentVideoVersion] = useState(1);
+  const [currentImageUrl, setCurrentImageUrl] = useState<string>('');
+  const [currentVideoUrl, setCurrentVideoUrl] = useState<string>('');
   const [mounted, setMounted] = useState(false);
+
+  // Real-time updates hook
+  const { lastUpdate } = useRealTimeUpdates();
 
   // Initialize Supabase client for real-time subscriptions
   const supabase = createClient(
@@ -49,7 +82,7 @@ export default function GalleryPage() {
 
     console.log('Setting up real-time subscriptions for gallery...');
     
-    const channel = supabase
+    const speciesChannel = supabase
       .channel('species-updates')
       .on(
         'postgres_changes',
@@ -71,13 +104,6 @@ export default function GalleryPage() {
           // Update selected species if it's the one that changed
           if (selectedSpecies?.id === updatedSpecies.id) {
             setSelectedSpecies(updatedSpecies);
-            
-            // Auto-select the new media type
-            if (updatedSpecies.supabase_video_url || updatedSpecies.video_url) {
-              setSelectedMedia('video');
-            } else if (updatedSpecies.supabase_image_url || updatedSpecies.image_url) {
-              setSelectedMedia('image');
-            }
           }
           
           // Clear generating states when generation completes
@@ -94,11 +120,136 @@ export default function GalleryPage() {
       )
       .subscribe();
 
+    // Set up real-time subscriptions for media updates
+    const mediaChannel = supabase
+      .channel('media-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'species_media'
+        },
+        (payload) => {
+          console.log('Real-time media update received:', payload);
+          
+          // Reload media for the selected species if it matches
+          if (selectedSpecies && (payload.new as any)?.species_id === selectedSpecies.id) {
+            loadSpeciesMedia(selectedSpecies.id);
+          }
+        }
+      )
+      .subscribe();
+
     return () => {
       console.log('Cleaning up real-time subscriptions...');
-      supabase.removeChannel(channel);
+      supabase.removeChannel(speciesChannel);
+      supabase.removeChannel(mediaChannel);
     };
   }, [mounted, selectedSpecies?.id]);
+
+  // Handle real-time media updates
+  useEffect(() => {
+    if (lastUpdate && lastUpdate.type === 'media_generated') {
+      const { speciesId, mediaType, version, url } = lastUpdate.data || {};
+      
+      console.log('Real-time media update received:', lastUpdate);
+      
+      // Always reload species list to update thumbnails
+      loadSpecies(true);
+      
+      // Only handle display updates for the currently selected species
+      if (selectedSpecies && speciesId === selectedSpecies.id) {
+        console.log('Real-time media update for selected species:', lastUpdate);
+        
+        // Reload media to get the latest versions
+        loadSpeciesMedia(selectedSpecies.id).then(() => {
+          // Auto-switch to the newly generated media type and version
+          if (mediaType === 'image' && version && url) {
+            setSelectedMedia('image');
+            setCurrentImageVersion(version);
+            setCurrentImageUrl(url);
+            console.log('Real-time: Switched to new image version:', version, url);
+          } else if (mediaType === 'video' && version && url) {
+            setSelectedMedia('video');
+            setCurrentVideoVersion(version);
+            setCurrentVideoUrl(url);
+            console.log('Real-time: Switched to new video version:', version, url);
+          }
+        });
+      }
+    }
+  }, [lastUpdate, selectedSpecies?.id]);
+
+  // Load species media when selected species changes
+  useEffect(() => {
+    if (selectedSpecies) {
+      // Clear current media state immediately when species changes
+      setSpeciesMedia(null);
+      setCurrentImageUrl('');
+      setCurrentVideoUrl('');
+      setCurrentImageVersion(1);
+      setCurrentVideoVersion(1);
+      setSelectedMedia('image');
+      
+      // Load new species media
+      loadSpeciesMedia(selectedSpecies.id);
+    }
+  }, [selectedSpecies]);
+
+  // Update display when current URLs change
+  useEffect(() => {
+    console.log('Current image URL updated:', currentImageUrl);
+    console.log('Current video URL updated:', currentVideoUrl);
+  }, [currentImageUrl, currentVideoUrl]);
+
+  const loadSpeciesMedia = async (speciesId: string) => {
+    setLoadingMedia(true);
+    try {
+      const response = await fetch(`/api/species/${speciesId}/media`);
+      const data = await response.json();
+      
+      if (data.error) {
+        console.error('Error loading species media:', data.error);
+        return;
+      }
+      
+      setSpeciesMedia(data.media);
+      
+      // Set current versions and URLs - always use the latest version
+      if (data.media.images.length > 0) {
+        // Sort by version to get the latest
+        const sortedImages = data.media.images.sort((a: MediaVersion, b: MediaVersion) => b.version - a.version);
+        const latestImage = sortedImages[0];
+        setCurrentImageVersion(latestImage.version);
+        setCurrentImageUrl(latestImage.url);
+        console.log('Set current image to version:', latestImage.version, 'URL:', latestImage.url);
+      }
+      
+      if (data.media.videos.length > 0) {
+        // Sort by version to get the latest
+        const sortedVideos = data.media.videos.sort((a: MediaVersion, b: MediaVersion) => b.version - a.version);
+        const latestVideo = sortedVideos[0];
+        setCurrentVideoVersion(latestVideo.version);
+        setCurrentVideoUrl(latestVideo.url);
+        console.log('Set current video to version:', latestVideo.version, 'URL:', latestVideo.url);
+      }
+      
+      // Auto-select media type based on what's available - always prefer images
+      if (data.media.images.length > 0) {
+        setSelectedMedia('image');
+        console.log('Auto-selected image media type');
+      } else if (data.media.videos.length > 0) {
+        setSelectedMedia('video');
+        console.log('Auto-selected video media type');
+      }
+      
+    } catch (error) {
+      console.error('Error loading species media:', error);
+    } finally {
+      setLoadingMedia(false);
+    }
+  };
 
   // Helper functions to get the best available URLs (prefer Supabase over Replicate)
   const getBestImageUrl = (species: Species) => {
@@ -109,50 +260,15 @@ export default function GalleryPage() {
     return species.supabase_video_url || species.video_url;
   };
 
-  // Download function for media files
-  const downloadMedia = async (url: string, filename: string) => {
-    try {
-      setMessage(`Downloading ${filename}...`);
-      const response = await fetch(url);
-      
-      if (!response.ok) {
-        throw new Error(`Failed to download: ${response.statusText}`);
-      }
-      
-      const blob = await response.blob();
-      const downloadUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = downloadUrl;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(downloadUrl);
-      
-      setMessage(`Downloaded ${filename} successfully!`);
-      
-      // Clear message after 3 seconds
-      setTimeout(() => setMessage(''), 3000);
-    } catch (error) {
-      console.error('Error downloading file:', error);
-      setMessage(`Failed to download ${filename}: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      setTimeout(() => setMessage(''), 5000);
-    }
-  };
-
   useEffect(() => {
     loadSpecies();
   }, []);
 
-  const loadSpecies = async () => {
+  const loadSpecies = async (preserveSelection = false) => {
     try {
       console.log('Loading species from API...');
-      console.log('Current URL:', window.location.href);
-      console.log('Fetching from:', '/api/species');
       
       const response = await fetch('/api/species');
-      console.log('Response status:', response.status);
-      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
       
       if (!response.ok) {
         const errorText = await response.text();
@@ -161,9 +277,6 @@ export default function GalleryPage() {
       }
       
       const data = await response.json();
-      console.log('Species API response type:', typeof data);
-      console.log('Species API response keys:', Object.keys(data));
-      console.log('Species API response:', data);
       
       if (data.error) {
         console.error('API returned error:', data.error);
@@ -171,24 +284,29 @@ export default function GalleryPage() {
       }
       
       const speciesList = data.species || [];
-      console.log(`Raw species list length: ${speciesList.length}`);
-      console.log('First 3 species:', speciesList.slice(0, 3));
+      console.log(`Loaded ${speciesList.length} species`);
       
       setSpecies(speciesList);
-      console.log('Species state updated, length:', speciesList.length);
       
-      if (speciesList.length > 0) {
-        setSelectedSpecies(speciesList[0]);
-        console.log('Selected first species:', speciesList[0].common_name);
-      } else {
-        console.warn('No species found in database');
-        setMessage('No species found in database. Please load species data first.');
+      // Only set selected species if we're not preserving selection or if no species is selected
+      if (!preserveSelection || !selectedSpecies) {
+        if (speciesList.length > 0) {
+          setSelectedSpecies(speciesList[0]);
+        } else {
+          console.warn('No species found in database');
+          setMessage('No species found in database. Please load species data first.');
+        }
+      } else if (preserveSelection && selectedSpecies) {
+        // Update the selected species with fresh data from the API
+        const updatedSelectedSpecies = speciesList.find((s: Species) => s.id === selectedSpecies.id);
+        if (updatedSelectedSpecies) {
+          setSelectedSpecies(updatedSelectedSpecies);
+        }
       }
+      
       setLoading(false);
-      console.log('Loading complete, species count:', speciesList.length);
     } catch (error) {
       console.error('Error loading species:', error);
-      console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
       setMessage(`Error loading species: ${error instanceof Error ? error.message : 'Unknown error'}. Check console for details.`);
       setLoading(false);
     }
@@ -232,22 +350,15 @@ export default function GalleryPage() {
         throw new Error(data.error);
       }
       
-      // Update the selected species with the generated image
-      const updatedSpecies = {
-        ...selectedSpecies,
-        image_url: data.imageUrl,
-        generation_status: 'generating_video'
-      };
+      // Reload media to get the new version
+      await loadSpeciesMedia(selectedSpecies.id);
       
-      setSelectedSpecies(updatedSpecies);
+      // Also reload the species list to update thumbnails (preserve current selection)
+      await loadSpecies(true);
       
-      // Update the species list as well
-      setSpecies(prev => prev.map(s =>
-        s.id === selectedSpecies.id ? updatedSpecies : s
-      ));
-      
-      // Auto-select image when generated
+      // Auto-select image when generated and ensure it's displayed
       setSelectedMedia('image');
+      console.log('Image generation completed - switched to image view');
       
     } catch (error) {
       console.error('Error generating image:', error);
@@ -282,14 +393,14 @@ export default function GalleryPage() {
     }));
     
     try {
-      // For video generation, prefer Replicate URLs since Supabase URLs aren't accessible to external services
-      const imageUrl = selectedSpecies.image_url || selectedSpecies.supabase_image_url;
+      // Use the currently displayed image URL and version for seeding
+      const imageUrl = currentImageUrl || getBestImageUrl(selectedSpecies);
       
       if (!imageUrl) {
         throw new Error('No image available for video generation. Please generate an image first.');
       }
       
-      console.log('Generating video with image URL:', imageUrl);
+      console.log('Generating video with image URL:', imageUrl, 'version:', currentImageVersion);
       
       const response = await fetch('/api/generate/video', {
         method: 'POST',
@@ -298,7 +409,8 @@ export default function GalleryPage() {
         },
         body: JSON.stringify({
           speciesId: selectedSpecies.id,
-          imageUrl: imageUrl
+          imageUrl: imageUrl,
+          seedImageVersion: currentImageVersion
         }),
       });
 
@@ -313,21 +425,11 @@ export default function GalleryPage() {
         throw new Error(data.error);
       }
       
-      // Update the selected species with the generated video
-      const updatedSpecies = {
-        ...selectedSpecies,
-        video_url: data.replicateUrl,
-        supabase_video_url: data.supabaseUrl,
-        supabase_video_path: data.species?.supabase_video_path,
-        generation_status: 'completed'
-      };
+      // Reload media to get the new version
+      await loadSpeciesMedia(selectedSpecies.id);
       
-      setSelectedSpecies(updatedSpecies);
-      
-      // Update the species list as well
-      setSpecies(prev => prev.map(s =>
-        s.id === selectedSpecies.id ? updatedSpecies : s
-      ));
+      // Also reload the species list to update thumbnails (preserve current selection)
+      await loadSpecies(true);
       
       // Auto-select video when generated
       setSelectedMedia('video');
@@ -343,6 +445,67 @@ export default function GalleryPage() {
           video: false
         }
       }));
+    }
+  };
+
+  const handleImageVersionChange = (version: number, url: string) => {
+    setCurrentImageVersion(version);
+    setCurrentImageUrl(url);
+  };
+
+  const handleVideoVersionChange = (version: number, url: string) => {
+    setCurrentVideoVersion(version);
+    setCurrentVideoUrl(url);
+  };
+
+  // Helper function to get current image data
+  const getCurrentImage = () => {
+    return speciesMedia?.images.find(img => img.version === currentImageVersion);
+  };
+
+  // Helper function to get current video data
+  const getCurrentVideo = () => {
+    return speciesMedia?.videos.find(vid => vid.version === currentVideoVersion);
+  };
+
+  // Handle media actions (favorite, delete, set primary)
+  const handleMediaAction = async (mediaType: 'image' | 'video', version: number, action: string, value?: boolean) => {
+    if (!selectedSpecies) return;
+
+    try {
+      if (action === 'delete') {
+        // Hide the media version
+        const response = await fetch(`/api/species/${selectedSpecies.id}/media/${mediaType}/${version}`, {
+          method: 'DELETE'
+        });
+
+        if (response.ok) {
+          // Reload media to update the list
+          await loadSpeciesMedia(selectedSpecies.id);
+          console.log(`${mediaType} version ${version} hidden successfully`);
+        } else {
+          console.error(`Failed to hide ${mediaType} version ${version}`);
+        }
+      } else {
+        // Update media version (favorite, setPrimary, etc.)
+        const response = await fetch(`/api/species/${selectedSpecies.id}/media/${mediaType}/${version}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ action, value })
+        });
+
+        if (response.ok) {
+          // Reload media to update the list
+          await loadSpeciesMedia(selectedSpecies.id);
+          console.log(`${mediaType} version ${version} ${action} updated successfully`);
+        } else {
+          console.error(`Failed to update ${mediaType} version ${version}`);
+        }
+      }
+    } catch (error) {
+      console.error(`Error handling ${action} for ${mediaType} version ${version}:`, error);
     }
   };
 
@@ -464,12 +627,6 @@ export default function GalleryPage() {
                   key={spec.id}
                   onClick={() => {
                     setSelectedSpecies(spec);
-                    // Auto-select image if available, otherwise video
-                    if (getBestImageUrl(spec)) {
-                      setSelectedMedia('image');
-                    } else if (getBestVideoUrl(spec)) {
-                      setSelectedMedia('video');
-                    }
                   }}
                   style={{
                     padding: '15px',
@@ -630,138 +787,405 @@ export default function GalleryPage() {
                 minHeight: '0', // Allow flex shrinking
                 overflow: 'hidden' // Prevent overflow
               }}>
-                <div style={{
-                  flex: 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: '100%',
-                  minHeight: '200px', // Smaller minimum
-                  maxHeight: '100%' // Use available space
-                }}>
-                  {selectedMedia === 'video' && getBestVideoUrl(selectedSpecies) ? (
-                    <video
-                      src={getBestVideoUrl(selectedSpecies)}
-                      controls
-                      autoPlay
-                      loop
-                      muted
-                      style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: '8px' }}
-                    />
-                  ) : selectedMedia === 'image' && getBestImageUrl(selectedSpecies) ? (
-                    <img
-                      src={getBestImageUrl(selectedSpecies)}
-                      alt={selectedSpecies.common_name}
-                      style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: '8px' }}
-                    />
-                  ) : (
-                    <div style={{ textAlign: 'center', color: '#666' }}>
-                      <div style={{ fontSize: '18px', marginBottom: '20px', fontWeight: '300' }}>
-                        No media generated yet
-                      </div>
-                      <div style={{ fontSize: '14px', color: '#888' }}>
-                        Use the buttons below to generate AI content
-                      </div>
+                {loadingMedia ? (
+                  <div style={{ textAlign: 'center', color: '#666' }}>
+                    <div style={{ fontSize: '18px', marginBottom: '20px', fontWeight: '300' }}>
+                      Loading media versions...
                     </div>
-                  )}
-                </div>
-
-                {/* Media Selection and Download Buttons */}
-                {(getBestImageUrl(selectedSpecies) || getBestVideoUrl(selectedSpecies)) && (
-                  <div style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '8px',
-                    marginTop: '10px',
-                    alignItems: 'center'
-                  }}>
-                    {/* Media Selection Buttons - Side by Side with thumbnails over buttons */}
-                    <div style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '8px',
-                      alignItems: 'center'
-                    }}>
-                      {/* Thumbnails positioned over buttons */}
+                  </div>
+                ) : (
+                  <>
+                    {/* Show loading state while media is being fetched */}
+                    {loadingMedia && (
                       <div style={{
+                        flex: 1,
                         display: 'flex',
-                        gap: '12px',
-                        justifyContent: 'center'
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: '100%',
+                        minHeight: '200px',
+                        color: '#666'
                       }}>
-                        {getBestImageUrl(selectedSpecies) && (
-                          <button
-                            onClick={() => setSelectedMedia('image')}
-                            style={{
-                              width: '80px',
-                              height: '55px',
-                              border: selectedMedia === 'image' ? '2px solid #4CAF50' : '1px solid rgba(255,255,255,0.2)',
-                              borderRadius: '6px',
-                              background: 'rgba(255,255,255,0.05)',
-                              cursor: 'pointer',
-                              overflow: 'hidden',
-                              transition: 'all 0.2s ease',
-                              padding: 0
-                            }}
-                          >
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ fontSize: '18px', marginBottom: '10px', fontWeight: '300' }}>
+                            Loading media...
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {!loadingMedia && (
+                      <div style={{
+                        flex: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: '100%',
+                        minHeight: '200px',
+                        maxHeight: 'calc(100vh - 400px)', // Fixed height calculation
+                        overflow: 'hidden' // Prevent overflow
+                      }}>
+                        {/* Always prioritize image display first, then video */}
+                        {selectedMedia === 'image' && (currentImageUrl || getBestImageUrl(selectedSpecies)) ? (
+                          <div style={{
+                            position: 'relative',
+                            maxWidth: '100%',
+                            maxHeight: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                          }}>
                             <img
-                              src={getBestImageUrl(selectedSpecies)}
-                              alt="Image thumbnail"
+                              key={`${selectedSpecies.id}-image-${currentImageVersion}-${currentImageUrl}`}
+                              src={currentImageUrl || getBestImageUrl(selectedSpecies)}
+                              alt={selectedSpecies.common_name}
                               style={{
-                                width: '100%',
-                                height: '100%',
-                                objectFit: 'cover'
+                                maxWidth: '100%',
+                                maxHeight: '100%',
+                                borderRadius: '8px',
+                                objectFit: 'contain' // Ensure proper scaling
                               }}
+                              onLoad={() => console.log('Image loaded:', currentImageUrl || getBestImageUrl(selectedSpecies))}
+                              onError={() => console.error('Image failed to load:', currentImageUrl || getBestImageUrl(selectedSpecies))}
                             />
-                          </button>
-                        )}
-                        {getBestVideoUrl(selectedSpecies) && (
-                          <button
-                            onClick={() => setSelectedMedia('video')}
-                            style={{
-                              width: '80px',
-                              height: '55px',
-                              border: selectedMedia === 'video' ? '2px solid #4CAF50' : '1px solid rgba(255,255,255,0.2)',
-                              borderRadius: '6px',
-                              background: 'rgba(255,255,255,0.05)',
-                              cursor: 'pointer',
-                              overflow: 'hidden',
-                              transition: 'all 0.2s ease',
-                              padding: 0,
-                              position: 'relative'
-                            }}
-                          >
+                            {/* Version indicator */}
+                            {speciesMedia && speciesMedia.images.length > 1 && (
+                              <div style={{
+                                position: 'absolute',
+                                top: '10px',
+                                right: '10px',
+                                background: 'rgba(0,0,0,0.7)',
+                                color: 'white',
+                                padding: '4px 8px',
+                                borderRadius: '4px',
+                                fontSize: '12px'
+                              }}>
+                                v{currentImageVersion}
+                              </div>
+                            )}
+                            {/* Hide button - only show if there are multiple versions */}
+                            {speciesMedia && speciesMedia.images.length > 1 && (
+                              <button
+                                onClick={() => handleMediaAction('image', currentImageVersion, 'delete')}
+                                style={{
+                                  position: 'absolute',
+                                  bottom: '10px',
+                                  right: '10px',
+                                  background: 'rgba(0,0,0,0.7)',
+                                  border: 'none',
+                                  borderRadius: '50%',
+                                  width: '24px',
+                                  height: '24px',
+                                  color: 'white',
+                                  cursor: 'pointer',
+                                  fontSize: '14px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  opacity: 0.7,
+                                  transition: 'opacity 0.2s ease'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
+                                onMouseLeave={(e) => e.currentTarget.style.opacity = '0.7'}
+                                title="Hide this version"
+                              >
+                                ×
+                              </button>
+                            )}
+                          </div>
+                        ) : selectedMedia === 'video' && (currentVideoUrl || getBestVideoUrl(selectedSpecies)) ? (
+                          <div style={{
+                            position: 'relative',
+                            maxWidth: '100%',
+                            maxHeight: '100%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                          }}>
                             <video
-                              src={getBestVideoUrl(selectedSpecies)}
+                              key={`${selectedSpecies.id}-video-${currentVideoVersion}-${currentVideoUrl}`}
+                              src={currentVideoUrl || getBestVideoUrl(selectedSpecies)}
+                              controls
+                              autoPlay
+                              loop
                               muted
                               style={{
-                                width: '100%',
-                                height: '100%',
-                                objectFit: 'cover'
+                                maxWidth: '100%',
+                                maxHeight: '100%',
+                                borderRadius: '8px',
+                                objectFit: 'contain' // Ensure proper scaling
                               }}
                             />
-                            <div style={{
-                              position: 'absolute',
-                              top: '50%',
-                              left: '50%',
-                              transform: 'translate(-50%, -50%)',
-                              color: 'white',
-                              fontSize: '18px',
-                              textShadow: '0 0 6px rgba(0,0,0,0.8)',
-                              pointerEvents: 'none'
-                            }}>
-                              ▶
+                            {/* Version indicator */}
+                            {speciesMedia && speciesMedia.videos.length > 1 && (
+                              <div style={{
+                                position: 'absolute',
+                                top: '10px',
+                                right: '10px',
+                                background: 'rgba(0,0,0,0.7)',
+                                color: 'white',
+                                padding: '4px 8px',
+                                borderRadius: '4px',
+                                fontSize: '12px'
+                              }}>
+                                v{currentVideoVersion}
+                              </div>
+                            )}
+                            {/* Hide button - only show if there are multiple versions */}
+                            {speciesMedia && speciesMedia.videos.length > 1 && (
+                              <button
+                                onClick={() => handleMediaAction('video', currentVideoVersion, 'delete')}
+                                style={{
+                                  position: 'absolute',
+                                  bottom: '10px',
+                                  right: '10px',
+                                  background: 'rgba(0,0,0,0.7)',
+                                  border: 'none',
+                                  borderRadius: '50%',
+                                  width: '24px',
+                                  height: '24px',
+                                  color: 'white',
+                                  cursor: 'pointer',
+                                  fontSize: '14px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  opacity: 0.7,
+                                  transition: 'opacity 0.2s ease'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
+                                onMouseLeave={(e) => e.currentTarget.style.opacity = '0.7'}
+                                title="Hide this version"
+                              >
+                                ×
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <div style={{ textAlign: 'center', color: '#666' }}>
+                            <div style={{ fontSize: '18px', marginBottom: '20px', fontWeight: '300' }}>
+                              No media generated yet
                             </div>
-                          </button>
+                            <div style={{ fontSize: '14px', color: '#888' }}>
+                              Use the buttons below to generate AI content
+                            </div>
+                          </div>
                         )}
                       </div>
-                    </div>
-                    
-                    {/* Download buttons hidden - users can drag images or use video controls */}
-                  </div>
+                    )}
+
+                    {/* Media Navigation */}
+                    {speciesMedia && (
+                      <div style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '15px',
+                        marginTop: '20px',
+                        width: '100%',
+                        maxWidth: '600px'
+                      }}>
+                        {/* Media Type Selection */}
+                        {(speciesMedia.images.length > 0 || speciesMedia.videos.length > 0 || getBestVideoUrl(selectedSpecies)) && (
+                          <div style={{
+                            display: 'flex',
+                            gap: '12px',
+                            justifyContent: 'center'
+                          }}>
+                            {(speciesMedia.images.length > 0 || getBestImageUrl(selectedSpecies)) && (
+                              <button
+                                onClick={() => setSelectedMedia('image')}
+                                style={{
+                                  width: '80px',
+                                  height: '55px',
+                                  border: selectedMedia === 'image' ? '2px solid #4CAF50' : '1px solid rgba(255,255,255,0.2)',
+                                  borderRadius: '6px',
+                                  background: 'rgba(255,255,255,0.05)',
+                                  cursor: 'pointer',
+                                  overflow: 'hidden',
+                                  transition: 'all 0.2s ease',
+                                  padding: 0
+                                }}
+                              >
+                                <img
+                                  src={currentImageUrl || getBestImageUrl(selectedSpecies)}
+                                  alt="Image thumbnail"
+                                  style={{
+                                    width: '100%',
+                                    height: '100%',
+                                    objectFit: 'cover'
+                                  }}
+                                />
+                              </button>
+                            )}
+                            {(speciesMedia.videos.length > 0 || getBestVideoUrl(selectedSpecies)) && (
+                              <button
+                                onClick={() => setSelectedMedia('video')}
+                                style={{
+                                  width: '80px',
+                                  height: '55px',
+                                  border: selectedMedia === 'video' ? '2px solid #4CAF50' : '1px solid rgba(255,255,255,0.2)',
+                                  borderRadius: '6px',
+                                  background: 'rgba(255,255,255,0.05)',
+                                  cursor: 'pointer',
+                                  overflow: 'hidden',
+                                  transition: 'all 0.2s ease',
+                                  padding: 0,
+                                  position: 'relative'
+                                }}
+                              >
+                                <video
+                                  src={currentVideoUrl || getBestVideoUrl(selectedSpecies)}
+                                  muted
+                                  style={{
+                                    width: '100%',
+                                    height: '100%',
+                                    objectFit: 'cover'
+                                  }}
+                                />
+                                <div style={{
+                                  position: 'absolute',
+                                  top: '50%',
+                                  left: '50%',
+                                  transform: 'translate(-50%, -50%)',
+                                  color: 'white',
+                                  fontSize: '18px',
+                                  textShadow: '0 0 6px rgba(0,0,0,0.8)',
+                                  pointerEvents: 'none'
+                                }}>
+                                  ▶
+                                </div>
+                              </button>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Simple Arrow Navigation */}
+                        {selectedMedia === 'image' && speciesMedia.images.length > 1 && (
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '20px',
+                            padding: '10px',
+                            background: 'rgba(255,255,255,0.05)',
+                            borderRadius: '8px'
+                          }}>
+                            <button
+                              onClick={() => {
+                                const currentIndex = speciesMedia.images.findIndex(img => img.version === currentImageVersion);
+                                if (currentIndex > 0) {
+                                  const prevImage = speciesMedia.images[currentIndex - 1];
+                                  handleImageVersionChange(prevImage.version, prevImage.url);
+                                }
+                              }}
+                              disabled={speciesMedia.images.findIndex(img => img.version === currentImageVersion) === 0}
+                              style={{
+                                background: 'rgba(255,255,255,0.1)',
+                                border: '1px solid rgba(255,255,255,0.2)',
+                                borderRadius: '4px',
+                                padding: '8px 12px',
+                                color: '#fff',
+                                cursor: 'pointer',
+                                fontSize: '16px',
+                                opacity: speciesMedia.images.findIndex(img => img.version === currentImageVersion) === 0 ? 0.3 : 1
+                              }}
+                            >
+                              ←
+                            </button>
+                            <span style={{ color: '#ccc', fontSize: '14px' }}>
+                              Image {currentImageVersion} of {speciesMedia.images.length}
+                            </span>
+                            <button
+                              onClick={() => {
+                                const currentIndex = speciesMedia.images.findIndex(img => img.version === currentImageVersion);
+                                if (currentIndex < speciesMedia.images.length - 1) {
+                                  const nextImage = speciesMedia.images[currentIndex + 1];
+                                  handleImageVersionChange(nextImage.version, nextImage.url);
+                                }
+                              }}
+                              disabled={speciesMedia.images.findIndex(img => img.version === currentImageVersion) === speciesMedia.images.length - 1}
+                              style={{
+                                background: 'rgba(255,255,255,0.1)',
+                                border: '1px solid rgba(255,255,255,0.2)',
+                                borderRadius: '4px',
+                                padding: '8px 12px',
+                                color: '#fff',
+                                cursor: 'pointer',
+                                fontSize: '16px',
+                                opacity: speciesMedia.images.findIndex(img => img.version === currentImageVersion) === speciesMedia.images.length - 1 ? 0.3 : 1
+                              }}
+                            >
+                              →
+                            </button>
+                          </div>
+                        )}
+                        
+                        {selectedMedia === 'video' && speciesMedia.videos.length > 1 && (
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '20px',
+                            padding: '10px',
+                            background: 'rgba(255,255,255,0.05)',
+                            borderRadius: '8px'
+                          }}>
+                            <button
+                              onClick={() => {
+                                const currentIndex = speciesMedia.videos.findIndex(vid => vid.version === currentVideoVersion);
+                                if (currentIndex > 0) {
+                                  const prevVideo = speciesMedia.videos[currentIndex - 1];
+                                  handleVideoVersionChange(prevVideo.version, prevVideo.url);
+                                }
+                              }}
+                              disabled={speciesMedia.videos.findIndex(vid => vid.version === currentVideoVersion) === 0}
+                              style={{
+                                background: 'rgba(255,255,255,0.1)',
+                                border: '1px solid rgba(255,255,255,0.2)',
+                                borderRadius: '4px',
+                                padding: '8px 12px',
+                                color: '#fff',
+                                cursor: 'pointer',
+                                fontSize: '16px',
+                                opacity: speciesMedia.videos.findIndex(vid => vid.version === currentVideoVersion) === 0 ? 0.3 : 1
+                              }}
+                            >
+                              ←
+                            </button>
+                            <span style={{ color: '#ccc', fontSize: '14px' }}>
+                              Video {currentVideoVersion} of {speciesMedia.videos.length}
+                            </span>
+                            <button
+                              onClick={() => {
+                                const currentIndex = speciesMedia.videos.findIndex(vid => vid.version === currentVideoVersion);
+                                if (currentIndex < speciesMedia.videos.length - 1) {
+                                  const nextVideo = speciesMedia.videos[currentIndex + 1];
+                                  handleVideoVersionChange(nextVideo.version, nextVideo.url);
+                                }
+                              }}
+                              disabled={speciesMedia.videos.findIndex(vid => vid.version === currentVideoVersion) === speciesMedia.videos.length - 1}
+                              style={{
+                                background: 'rgba(255,255,255,0.1)',
+                                border: '1px solid rgba(255,255,255,0.2)',
+                                borderRadius: '4px',
+                                padding: '8px 12px',
+                                color: '#fff',
+                                cursor: 'pointer',
+                                fontSize: '16px',
+                                opacity: speciesMedia.videos.findIndex(vid => vid.version === currentVideoVersion) === speciesMedia.videos.length - 1 ? 0.3 : 1
+                              }}
+                            >
+                              →
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 
-              {/* Generate buttons positioned under thumbnails */}
+              {/* Generate buttons */}
               <div style={{
                 display: 'flex',
                 justifyContent: 'center',
@@ -790,10 +1214,11 @@ export default function GalleryPage() {
                     width: '140px'
                   }}
                 >
-                  {generatingStates[selectedSpecies.id]?.image ? 'Generating...' : getBestImageUrl(selectedSpecies) ? 'New Image' : 'Generate Image'}
+                  {generatingStates[selectedSpecies.id]?.image ? 'Generating...' : 
+                   speciesMedia?.images.length ? 'New Image' : 'Generate Image'}
                 </button>
 
-                {getBestImageUrl(selectedSpecies) && (
+                {(currentImageUrl || getBestImageUrl(selectedSpecies)) && (
                   <button
                     onClick={generateVideo}
                     disabled={generatingStates[selectedSpecies.id]?.video || false}
@@ -813,7 +1238,8 @@ export default function GalleryPage() {
                       width: '140px'
                     }}
                   >
-                    {generatingStates[selectedSpecies.id]?.video ? 'Generating...' : getBestVideoUrl(selectedSpecies) ? 'New Video' : 'Generate Video'}
+                    {generatingStates[selectedSpecies.id]?.video ? 'Generating...' :
+                     speciesMedia?.videos.length ? 'New Video' : 'Generate Video'}
                   </button>
                 )}
               </div>
@@ -821,6 +1247,9 @@ export default function GalleryPage() {
           )}
         </div>
       </div>
+      
+      {/* Real-time Notifications */}
+      <RealTimeNotifications />
     </>
   );
 }
