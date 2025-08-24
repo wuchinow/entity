@@ -125,7 +125,12 @@ export async function generateImage(speciesId: string): Promise<void> {
       .select()
       .single();
 
-    if (!mediaError && mediaResult) {
+    if (mediaError) {
+      console.error('❌ Media insert error:', mediaError);
+      throw new Error(`Failed to insert media: ${mediaError.message}`);
+    }
+
+    if (mediaResult) {
       // Update species counters and current version
       const { error: speciesUpdateError } = await supabase
         .from('species')
@@ -133,21 +138,27 @@ export async function generateImage(speciesId: string): Promise<void> {
           total_image_versions: nextVersion,
           current_displayed_image_version: nextVersion,
           generation_status: 'completed',
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
+          // Also update legacy fields for backward compatibility
+          image_url: imageUrl,
+          supabase_image_url: supabaseImageUrl,
+          supabase_image_path: supabaseImagePath,
+          image_generated_at: new Date().toISOString()
         })
         .eq('id', speciesId);
 
-      if (!speciesUpdateError) {
-        updateSuccessful = true;
-        console.log('✅ Used direct media versioning system - version', nextVersion);
+      if (speciesUpdateError) {
+        console.error('❌ Species update error:', speciesUpdateError);
+        throw new Error(`Failed to update species: ${speciesUpdateError.message}`);
       }
+
+      updateSuccessful = true;
+      console.log('✅ Used direct media versioning system - version', nextVersion);
     }
   } catch (directError) {
-    console.log('📝 Direct media system failed, using legacy update');
-  }
-
-  // If direct versioning failed, use legacy update
-  if (!updateSuccessful) {
+    console.error('❌ Direct media system failed:', directError);
+    
+    // If direct versioning failed, use legacy update as fallback
     const updateData: any = {
       image_url: imageUrl,
       generation_status: 'completed',
@@ -168,7 +179,7 @@ export async function generateImage(speciesId: string): Promise<void> {
     if (updateError) {
       throw new Error('Failed to save image to database');
     }
-    console.log('✅ Used legacy update system');
+    console.log('✅ Used legacy update system as fallback');
   }
 
   // Broadcast real-time update to all connected clients

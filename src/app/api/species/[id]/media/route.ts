@@ -28,7 +28,7 @@ export async function GET(
       return NextResponse.json({ error: 'Species not found' }, { status: 404 });
     }
 
-    // Get all media versions for this species
+    // Get all media versions for this species from the new versioning system
     const { data: mediaVersions, error: mediaError } = await supabase
       .from('species_media')
       .select('*')
@@ -36,14 +36,40 @@ export async function GET(
       .order('media_type', { ascending: true })
       .order('version_number', { ascending: true });
 
-    if (mediaError) {
-      console.error('Error fetching media versions:', mediaError);
-      return NextResponse.json({ error: 'Failed to fetch media versions' }, { status: 500 });
-    }
+    // Don't fail if species_media table doesn't exist or has no data - fall back to legacy
+    let images = [];
+    let videos = [];
 
-    // Organize media by type
-    const images = mediaVersions?.filter(m => m.media_type === 'image') || [];
-    const videos = mediaVersions?.filter(m => m.media_type === 'video') || [];
+    if (!mediaError && mediaVersions && mediaVersions.length > 0) {
+      // Use new versioning system data
+      images = mediaVersions.filter(m => m.media_type === 'image') || [];
+      videos = mediaVersions.filter(m => m.media_type === 'video') || [];
+    } else {
+      // Fall back to legacy system - create version objects from species table data
+      if (species.image_url || species.supabase_image_url) {
+        images = [{
+          version_number: 1,
+          supabase_url: species.supabase_image_url,
+          replicate_url: species.image_url,
+          created_at: species.image_generated_at || species.created_at,
+          is_primary: true,
+          is_selected_for_exhibit: true
+        }];
+      }
+      
+      if (species.video_url || species.supabase_video_url) {
+        videos = [{
+          version_number: 1,
+          supabase_url: species.supabase_video_url,
+          replicate_url: species.video_url,
+          created_at: species.video_generated_at || species.created_at,
+          is_primary: true,
+          is_selected_for_exhibit: true,
+          seed_image_version: 1,
+          seed_image_url: species.supabase_image_url || species.image_url
+        }];
+      }
+    }
 
     // Get current versions (highest version numbers)
     const currentImageVersion = images.length > 0 ? Math.max(...images.map(i => i.version_number)) : 0;

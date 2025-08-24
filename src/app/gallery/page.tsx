@@ -1124,7 +1124,8 @@ export default function GalleryPage() {
                                   cursor: 'pointer',
                                   overflow: 'hidden',
                                   transition: 'all 0.2s ease',
-                                  padding: 0
+                                  padding: 0,
+                                  position: 'relative'
                                 }}
                               >
                                 <img
@@ -1136,6 +1137,21 @@ export default function GalleryPage() {
                                     objectFit: 'cover'
                                   }}
                                 />
+                                {/* Show version indicator on thumbnail */}
+                                {speciesMedia.images.length > 0 && (
+                                  <div style={{
+                                    position: 'absolute',
+                                    bottom: '2px',
+                                    right: '2px',
+                                    background: 'rgba(0,0,0,0.7)',
+                                    color: 'white',
+                                    fontSize: '8px',
+                                    padding: '1px 3px',
+                                    borderRadius: '2px'
+                                  }}>
+                                    v{currentImageVersion}
+                                  </div>
+                                )}
                               </button>
                             )}
                             {(speciesMedia.videos.length > 0 || getBestVideoUrl(selectedSpecies)) && (
@@ -1175,13 +1191,28 @@ export default function GalleryPage() {
                                 }}>
                                   ▶
                                 </div>
+                                {/* Show version indicator on thumbnail */}
+                                {speciesMedia.videos.length > 0 && (
+                                  <div style={{
+                                    position: 'absolute',
+                                    bottom: '2px',
+                                    right: '2px',
+                                    background: 'rgba(0,0,0,0.7)',
+                                    color: 'white',
+                                    fontSize: '8px',
+                                    padding: '1px 3px',
+                                    borderRadius: '2px'
+                                  }}>
+                                    v{currentVideoVersion}
+                                  </div>
+                                )}
                               </button>
                             )}
                           </div>
                         )}
 
-                        {/* Simple Arrow Navigation */}
-                        {selectedMedia === 'image' && speciesMedia.images.length > 1 && (
+                        {/* Simple Arrow Navigation - Show when there are multiple versions of the selected media type */}
+                        {selectedMedia === 'image' && speciesMedia && speciesMedia.images.length > 1 && (
                           <div style={{
                             display: 'flex',
                             alignItems: 'center',
@@ -1193,13 +1224,17 @@ export default function GalleryPage() {
                           }}>
                             <button
                               onClick={() => {
-                                const currentIndex = speciesMedia.images.findIndex(img => img.version === currentImageVersion);
+                                const sortedImages = speciesMedia.images.sort((a, b) => a.version - b.version);
+                                const currentIndex = sortedImages.findIndex(img => img.version === currentImageVersion);
                                 if (currentIndex > 0) {
-                                  const prevImage = speciesMedia.images[currentIndex - 1];
+                                  const prevImage = sortedImages[currentIndex - 1];
                                   handleImageVersionChange(prevImage.version, prevImage.url);
                                 }
                               }}
-                              disabled={speciesMedia.images.findIndex(img => img.version === currentImageVersion) === 0}
+                              disabled={(() => {
+                                const sortedImages = speciesMedia.images.sort((a, b) => a.version - b.version);
+                                return sortedImages.findIndex(img => img.version === currentImageVersion) === 0;
+                              })()}
                               style={{
                                 background: 'rgba(255,255,255,0.1)',
                                 border: '1px solid rgba(255,255,255,0.2)',
@@ -1208,7 +1243,10 @@ export default function GalleryPage() {
                                 color: '#fff',
                                 cursor: 'pointer',
                                 fontSize: '16px',
-                                opacity: speciesMedia.images.findIndex(img => img.version === currentImageVersion) === 0 ? 0.3 : 1
+                                opacity: (() => {
+                                  const sortedImages = speciesMedia.images.sort((a, b) => a.version - b.version);
+                                  return sortedImages.findIndex(img => img.version === currentImageVersion) === 0 ? 0.3 : 1;
+                                })()
                               }}
                             >
                               ←
@@ -1218,13 +1256,17 @@ export default function GalleryPage() {
                             </span>
                             <button
                               onClick={() => {
-                                const currentIndex = speciesMedia.images.findIndex(img => img.version === currentImageVersion);
-                                if (currentIndex < speciesMedia.images.length - 1) {
-                                  const nextImage = speciesMedia.images[currentIndex + 1];
+                                const sortedImages = speciesMedia.images.sort((a, b) => a.version - b.version);
+                                const currentIndex = sortedImages.findIndex(img => img.version === currentImageVersion);
+                                if (currentIndex < sortedImages.length - 1) {
+                                  const nextImage = sortedImages[currentIndex + 1];
                                   handleImageVersionChange(nextImage.version, nextImage.url);
                                 }
                               }}
-                              disabled={speciesMedia.images.findIndex(img => img.version === currentImageVersion) === speciesMedia.images.length - 1}
+                              disabled={(() => {
+                                const sortedImages = speciesMedia.images.sort((a, b) => a.version - b.version);
+                                return sortedImages.findIndex(img => img.version === currentImageVersion) === sortedImages.length - 1;
+                              })()}
                               style={{
                                 background: 'rgba(255,255,255,0.1)',
                                 border: '1px solid rgba(255,255,255,0.2)',
@@ -1233,7 +1275,10 @@ export default function GalleryPage() {
                                 color: '#fff',
                                 cursor: 'pointer',
                                 fontSize: '16px',
-                                opacity: speciesMedia.images.findIndex(img => img.version === currentImageVersion) === speciesMedia.images.length - 1 ? 0.3 : 1
+                                opacity: (() => {
+                                  const sortedImages = speciesMedia.images.sort((a, b) => a.version - b.version);
+                                  return sortedImages.findIndex(img => img.version === currentImageVersion) === sortedImages.length - 1 ? 0.3 : 1;
+                                })()
                               }}
                             >
                               →
@@ -1241,7 +1286,7 @@ export default function GalleryPage() {
                           </div>
                         )}
                         
-                        {selectedMedia === 'video' && speciesMedia.videos.length > 1 && (
+                        {selectedMedia === 'video' && speciesMedia && speciesMedia.videos.length > 1 && (
                           <div style={{
                             display: 'flex',
                             alignItems: 'center',
