@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { RealTimeNotifications } from '@/components/RealTimeNotifications';
 import { useRealTimeUpdates } from '@/hooks/useRealTimeUpdates';
-import { useAutoErrorRecovery } from '@/hooks/useAutoErrorRecovery';
+// import { useAutoErrorRecovery } from '@/hooks/useAutoErrorRecovery';
 
 interface Species {
   id: string;
@@ -67,22 +67,25 @@ export default function GalleryPage() {
   // Real-time updates hook
   const { lastUpdate } = useRealTimeUpdates();
 
-  // Auto error recovery hook
-  const { stats: recoveryStats, manualRecovery } = useAutoErrorRecovery({
-    enabled: true,
-    interval: 45000, // Check every 45 seconds
-    onRecovery: (stats) => {
-      if (stats.totalFixed > 0 || stats.totalRetried > 0) {
-        const message = stats.totalFixed > 0
-          ? `Auto-fixed ${stats.totalFixed} species with error status`
-          : `Retrying ${stats.totalRetried} species with old errors`;
-        setMessage(message);
-        setTimeout(() => setMessage(''), 3000);
-      }
-      // Always refresh species list to show updated statuses and thumbnails
-      loadSpecies(true);
-    }
-  });
+  // Auto error recovery disabled - no longer needed for exhibition
+  // const { stats: recoveryStats, manualRecovery } = useAutoErrorRecovery({
+  //   enabled: false,
+  //   interval: 45000, // Check every 45 seconds
+  //   onRecovery: (stats) => {
+  //     if (stats.totalFixed > 0 || stats.totalRetried > 0) {
+  //       const message = stats.totalFixed > 0
+  //         ? `Auto-fixed ${stats.totalFixed} species with error status`
+  //         : `Retrying ${stats.totalRetried} species with old errors`;
+  //       setMessage(message);
+  //       setTimeout(() => setMessage(''), 3000);
+  //
+  //       // Only refresh species list if we actually fixed or retried something
+  //       // This prevents unnecessary scroll position resets
+  //       loadSpecies(true);
+  //     }
+  //     // Don't refresh the list if no changes were made to avoid scroll position reset
+  //   }
+  // });
 
   // Initialize Supabase client for real-time subscriptions
   const supabase = createClient(
@@ -249,23 +252,21 @@ export default function GalleryPage() {
       
       setSpeciesMedia(data.media);
       
-      // Set current versions and URLs - always use the latest version
+      // Set current versions and URLs - use the first available (curated) media
       if (data.media.images.length > 0) {
-        // Sort by version to get the latest
-        const sortedImages = data.media.images.sort((a: MediaVersion, b: MediaVersion) => b.version - a.version);
-        const latestImage = sortedImages[0];
-        setCurrentImageVersion(latestImage.version);
-        setCurrentImageUrl(latestImage.url);
-        console.log('Set current image to version:', latestImage.version, 'URL:', latestImage.url);
+        // Use the first available image (remaining after curation)
+        const firstImage = data.media.images[0];
+        setCurrentImageVersion(firstImage.version);
+        setCurrentImageUrl(firstImage.url);
+        console.log('Set current image to version:', firstImage.version, 'URL:', firstImage.url);
       }
       
       if (data.media.videos.length > 0) {
-        // Sort by version to get the latest
-        const sortedVideos = data.media.videos.sort((a: MediaVersion, b: MediaVersion) => b.version - a.version);
-        const latestVideo = sortedVideos[0];
-        setCurrentVideoVersion(latestVideo.version);
-        setCurrentVideoUrl(latestVideo.url);
-        console.log('Set current video to version:', latestVideo.version, 'URL:', latestVideo.url);
+        // Use the first available video (remaining after curation)
+        const firstVideo = data.media.videos[0];
+        setCurrentVideoVersion(firstVideo.version);
+        setCurrentVideoUrl(firstVideo.url);
+        console.log('Set current video to version:', firstVideo.version, 'URL:', firstVideo.url);
       }
       
       // Auto-select media type based on what's available - always prefer images
@@ -284,32 +285,7 @@ export default function GalleryPage() {
     }
   };
 
-  // Add refresh function for manual media refresh
-  const refreshCurrentMedia = async () => {
-    if (selectedSpecies) {
-      console.log('Manually refreshing media for:', selectedSpecies.common_name);
-      await loadSpeciesMedia(selectedSpecies.id);
-      // Also refresh the species list to update thumbnails
-      await loadSpecies(true);
-    }
-  };
-
-  // Add function to refresh all species data and fix error states
-  const refreshAllSpecies = async () => {
-    console.log('Refreshing all species data and fixing error states...');
-    try {
-      // Use the new auto-recovery system
-      await manualRecovery();
-      
-      // Then refresh all species data
-      await loadSpecies(false);
-      console.log('All species data refreshed successfully');
-    } catch (error) {
-      console.error('Error refreshing all species:', error);
-      setMessage('Error refreshing species data');
-      setTimeout(() => setMessage(''), 5000);
-    }
-  };
+  // Refresh functions removed for exhibition - real-time updates handle data freshness
 
   // Helper functions to get the best available URLs (prefer Supabase over Replicate)
   const getBestImageUrl = (species: Species) => {
@@ -668,24 +644,6 @@ export default function GalleryPage() {
               <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '300' }}>
                 Extinct Species ({species.length})
               </h2>
-              <button
-                onClick={refreshAllSpecies}
-                style={{
-                  background: 'rgba(34, 197, 94, 0.15)',
-                  border: '1px solid rgba(34, 197, 94, 0.3)',
-                  borderRadius: '4px',
-                  padding: '4px 8px',
-                  color: '#4ade80',
-                  fontSize: '11px',
-                  cursor: 'pointer',
-                  fontWeight: '400',
-                  transition: 'all 0.2s ease',
-                  fontFamily: 'inherit'
-                }}
-                title="Refresh all species data and run error recovery"
-              >
-                ↻
-              </button>
             </div>
           </div>
           
@@ -693,7 +651,7 @@ export default function GalleryPage() {
             flex: 1,
             overflowY: 'auto',
             padding: '10px'
-          }}>
+          }} id="species-list-container">
             {species.map((spec) => {
               const getStatusIndicator = () => {
                 // Check if species has any media (including from species_media table)
@@ -731,7 +689,18 @@ export default function GalleryPage() {
                 <div
                   key={spec.id}
                   onClick={() => {
+                    // Store current scroll position before changing species
+                    const container = document.getElementById('species-list-container');
+                    const scrollTop = container?.scrollTop || 0;
+                    
                     setSelectedSpecies(spec);
+                    
+                    // Restore scroll position after a brief delay to allow re-render
+                    setTimeout(() => {
+                      if (container) {
+                        container.scrollTop = scrollTop;
+                      }
+                    }, 50);
                   }}
                   style={{
                     padding: '15px',
@@ -943,8 +912,9 @@ export default function GalleryPage() {
                         justifyContent: 'center',
                         width: '100%',
                         minHeight: '200px',
-                        maxHeight: 'calc(100vh - 400px)', // Fixed height calculation
-                        overflow: 'hidden' // Prevent overflow
+                        maxHeight: 'calc(100vh - 300px)', // Adjusted for removed navigation
+                        overflow: 'hidden', // Prevent overflow
+                        padding: '20px' // Add padding around media
                       }}>
                         {/* Always prioritize image display first, then video */}
                         {selectedMedia === 'image' && (currentImageUrl || getBestImageUrl(selectedSpecies)) ? (
@@ -963,56 +933,17 @@ export default function GalleryPage() {
                               style={{
                                 maxWidth: '100%',
                                 maxHeight: '100%',
+                                width: 'auto',
+                                height: 'auto',
                                 borderRadius: '8px',
-                                objectFit: 'contain' // Ensure proper scaling
+                                objectFit: 'contain', // Preserve aspect ratio
+                                display: 'block'
                               }}
                               onLoad={() => console.log('Image loaded:', currentImageUrl || getBestImageUrl(selectedSpecies))}
                               onError={() => console.error('Image failed to load:', currentImageUrl || getBestImageUrl(selectedSpecies))}
                             />
-                            {/* Version indicator */}
-                            {speciesMedia && speciesMedia.images.length > 1 && (
-                              <div style={{
-                                position: 'absolute',
-                                top: '10px',
-                                right: '10px',
-                                background: 'rgba(0,0,0,0.7)',
-                                color: 'white',
-                                padding: '4px 8px',
-                                borderRadius: '4px',
-                                fontSize: '12px'
-                              }}>
-                                v{currentImageVersion}
-                              </div>
-                            )}
-                            {/* Hide button - only show if there are multiple versions */}
-                            {speciesMedia && speciesMedia.images.length > 1 && (
-                              <button
-                                onClick={() => handleMediaAction('image', currentImageVersion, 'delete')}
-                                style={{
-                                  position: 'absolute',
-                                  bottom: '10px',
-                                  right: '10px',
-                                  background: 'rgba(0,0,0,0.7)',
-                                  border: 'none',
-                                  borderRadius: '50%',
-                                  width: '24px',
-                                  height: '24px',
-                                  color: 'white',
-                                  cursor: 'pointer',
-                                  fontSize: '14px',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  opacity: 0.7,
-                                  transition: 'opacity 0.2s ease'
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
-                                onMouseLeave={(e) => e.currentTarget.style.opacity = '0.7'}
-                                title="Hide this version"
-                              >
-                                ×
-                              </button>
-                            )}
+                            {/* Version indicator removed for exhibition */}
+                            {/* Hide button removed for exhibition presentation mode */}
                           </div>
                         ) : selectedMedia === 'video' && (currentVideoUrl || getBestVideoUrl(selectedSpecies)) ? (
                           <div style={{
@@ -1033,54 +964,15 @@ export default function GalleryPage() {
                               style={{
                                 maxWidth: '100%',
                                 maxHeight: '100%',
+                                width: 'auto',
+                                height: 'auto',
                                 borderRadius: '8px',
-                                objectFit: 'contain' // Ensure proper scaling
+                                objectFit: 'contain', // Preserve aspect ratio
+                                display: 'block'
                               }}
                             />
-                            {/* Version indicator */}
-                            {speciesMedia && speciesMedia.videos.length > 1 && (
-                              <div style={{
-                                position: 'absolute',
-                                top: '10px',
-                                right: '10px',
-                                background: 'rgba(0,0,0,0.7)',
-                                color: 'white',
-                                padding: '4px 8px',
-                                borderRadius: '4px',
-                                fontSize: '12px'
-                              }}>
-                                v{currentVideoVersion}
-                              </div>
-                            )}
-                            {/* Hide button - only show if there are multiple versions */}
-                            {speciesMedia && speciesMedia.videos.length > 1 && (
-                              <button
-                                onClick={() => handleMediaAction('video', currentVideoVersion, 'delete')}
-                                style={{
-                                  position: 'absolute',
-                                  bottom: '10px',
-                                  right: '10px',
-                                  background: 'rgba(0,0,0,0.7)',
-                                  border: 'none',
-                                  borderRadius: '50%',
-                                  width: '24px',
-                                  height: '24px',
-                                  color: 'white',
-                                  cursor: 'pointer',
-                                  fontSize: '14px',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  opacity: 0.7,
-                                  transition: 'opacity 0.2s ease'
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
-                                onMouseLeave={(e) => e.currentTarget.style.opacity = '0.7'}
-                                title="Hide this version"
-                              >
-                                ×
-                              </button>
-                            )}
+                            {/* Version indicator removed for exhibition */}
+                            {/* Hide button removed for exhibition presentation mode */}
                           </div>
                         ) : (
                           <div style={{ textAlign: 'center', color: '#666' }}>
@@ -1137,21 +1029,7 @@ export default function GalleryPage() {
                                     objectFit: 'cover'
                                   }}
                                 />
-                                {/* Show version indicator on thumbnail */}
-                                {speciesMedia.images.length > 0 && (
-                                  <div style={{
-                                    position: 'absolute',
-                                    bottom: '2px',
-                                    right: '2px',
-                                    background: 'rgba(0,0,0,0.7)',
-                                    color: 'white',
-                                    fontSize: '8px',
-                                    padding: '1px 3px',
-                                    borderRadius: '2px'
-                                  }}>
-                                    v{currentImageVersion}
-                                  </div>
-                                )}
+                                {/* Version indicator removed for exhibition */}
                               </button>
                             )}
                             {(speciesMedia.videos.length > 0 || getBestVideoUrl(selectedSpecies)) && (
@@ -1191,21 +1069,7 @@ export default function GalleryPage() {
                                 }}>
                                   ▶
                                 </div>
-                                {/* Show version indicator on thumbnail */}
-                                {speciesMedia.videos.length > 0 && (
-                                  <div style={{
-                                    position: 'absolute',
-                                    bottom: '2px',
-                                    right: '2px',
-                                    background: 'rgba(0,0,0,0.7)',
-                                    color: 'white',
-                                    fontSize: '8px',
-                                    padding: '1px 3px',
-                                    borderRadius: '2px'
-                                  }}>
-                                    v{currentVideoVersion}
-                                  </div>
-                                )}
+                                {/* Version indicator removed for exhibition */}
                               </button>
                             )}
                           </div>
@@ -1298,13 +1162,17 @@ export default function GalleryPage() {
                           }}>
                             <button
                               onClick={() => {
-                                const currentIndex = speciesMedia.videos.findIndex(vid => vid.version === currentVideoVersion);
+                                const sortedVideos = speciesMedia.videos.sort((a, b) => a.version - b.version);
+                                const currentIndex = sortedVideos.findIndex(vid => vid.version === currentVideoVersion);
                                 if (currentIndex > 0) {
-                                  const prevVideo = speciesMedia.videos[currentIndex - 1];
+                                  const prevVideo = sortedVideos[currentIndex - 1];
                                   handleVideoVersionChange(prevVideo.version, prevVideo.url);
                                 }
                               }}
-                              disabled={speciesMedia.videos.findIndex(vid => vid.version === currentVideoVersion) === 0}
+                              disabled={(() => {
+                                const sortedVideos = speciesMedia.videos.sort((a, b) => a.version - b.version);
+                                return sortedVideos.findIndex(vid => vid.version === currentVideoVersion) === 0;
+                              })()}
                               style={{
                                 background: 'rgba(255,255,255,0.1)',
                                 border: '1px solid rgba(255,255,255,0.2)',
@@ -1313,23 +1181,33 @@ export default function GalleryPage() {
                                 color: '#fff',
                                 cursor: 'pointer',
                                 fontSize: '16px',
-                                opacity: speciesMedia.videos.findIndex(vid => vid.version === currentVideoVersion) === 0 ? 0.3 : 1
+                                opacity: (() => {
+                                  const sortedVideos = speciesMedia.videos.sort((a, b) => a.version - b.version);
+                                  return sortedVideos.findIndex(vid => vid.version === currentVideoVersion) === 0 ? 0.3 : 1;
+                                })()
                               }}
                             >
                               ←
                             </button>
                             <span style={{ color: '#ccc', fontSize: '14px' }}>
-                              Video {currentVideoVersion} of {speciesMedia.videos.length}
+                              Video {(() => {
+                                const sortedVideos = speciesMedia.videos.sort((a, b) => a.version - b.version);
+                                return sortedVideos.findIndex(vid => vid.version === currentVideoVersion) + 1;
+                              })()} of {speciesMedia.videos.length}
                             </span>
                             <button
                               onClick={() => {
-                                const currentIndex = speciesMedia.videos.findIndex(vid => vid.version === currentVideoVersion);
-                                if (currentIndex < speciesMedia.videos.length - 1) {
-                                  const nextVideo = speciesMedia.videos[currentIndex + 1];
+                                const sortedVideos = speciesMedia.videos.sort((a, b) => a.version - b.version);
+                                const currentIndex = sortedVideos.findIndex(vid => vid.version === currentVideoVersion);
+                                if (currentIndex < sortedVideos.length - 1) {
+                                  const nextVideo = sortedVideos[currentIndex + 1];
                                   handleVideoVersionChange(nextVideo.version, nextVideo.url);
                                 }
                               }}
-                              disabled={speciesMedia.videos.findIndex(vid => vid.version === currentVideoVersion) === speciesMedia.videos.length - 1}
+                              disabled={(() => {
+                                const sortedVideos = speciesMedia.videos.sort((a, b) => a.version - b.version);
+                                return sortedVideos.findIndex(vid => vid.version === currentVideoVersion) === sortedVideos.length - 1;
+                              })()}
                               style={{
                                 background: 'rgba(255,255,255,0.1)',
                                 border: '1px solid rgba(255,255,255,0.2)',
@@ -1338,7 +1216,10 @@ export default function GalleryPage() {
                                 color: '#fff',
                                 cursor: 'pointer',
                                 fontSize: '16px',
-                                opacity: speciesMedia.videos.findIndex(vid => vid.version === currentVideoVersion) === speciesMedia.videos.length - 1 ? 0.3 : 1
+                                opacity: (() => {
+                                  const sortedVideos = speciesMedia.videos.sort((a, b) => a.version - b.version);
+                                  return sortedVideos.findIndex(vid => vid.version === currentVideoVersion) === sortedVideos.length - 1 ? 0.3 : 1;
+                                })()
                               }}
                             >
                               →
@@ -1351,65 +1232,7 @@ export default function GalleryPage() {
                 )}
               </div>
 
-              {/* Generate buttons */}
-              <div style={{
-                display: 'flex',
-                justifyContent: 'center',
-                gap: '12px',
-                padding: '20px',
-                borderTop: '1px solid rgba(255,255,255,0.1)',
-                background: 'rgba(0,0,0,0.2)',
-                flexShrink: 0
-              }}>
-                <button
-                  onClick={generateImage}
-                  disabled={generatingStates[selectedSpecies.id]?.image || false}
-                  style={{
-                    background: generatingStates[selectedSpecies.id]?.image
-                      ? 'rgba(255,255,255,0.1)'
-                      : 'rgba(255,255,255,0.05)',
-                    color: generatingStates[selectedSpecies.id]?.image ? '#ccc' : '#fff',
-                    border: '1px solid rgba(255,255,255,0.2)',
-                    padding: '12px 24px',
-                    borderRadius: '6px',
-                    fontSize: '14px',
-                    cursor: generatingStates[selectedSpecies.id]?.image ? 'not-allowed' : 'pointer',
-                    fontWeight: '400',
-                    transition: 'all 0.2s ease',
-                    fontFamily: 'inherit',
-                    width: '140px'
-                  }}
-                >
-                  {generatingStates[selectedSpecies.id]?.image ? 'Generating...' :
-                   speciesMedia?.images.length ? 'New Image' : 'Generate Image'}
-                </button>
-
-                {(currentImageUrl || getBestImageUrl(selectedSpecies)) && (
-                  <button
-                    onClick={generateVideo}
-                    disabled={generatingStates[selectedSpecies.id]?.video || false}
-                    style={{
-                      background: generatingStates[selectedSpecies.id]?.video
-                        ? 'rgba(255,255,255,0.1)'
-                        : 'rgba(255,255,255,0.05)',
-                      color: generatingStates[selectedSpecies.id]?.video ? '#ccc' : '#fff',
-                      border: '1px solid rgba(255,255,255,0.2)',
-                      padding: '12px 24px',
-                      borderRadius: '6px',
-                      fontSize: '14px',
-                      cursor: generatingStates[selectedSpecies.id]?.video ? 'not-allowed' : 'pointer',
-                      fontWeight: '400',
-                      transition: 'all 0.2s ease',
-                      fontFamily: 'inherit',
-                      width: '140px'
-                    }}
-                  >
-                    {generatingStates[selectedSpecies.id]?.video ? 'Generating...' :
-                     speciesMedia?.videos.length ? 'New Video' : 'Generate Video'}
-                  </button>
-                )}
-
-              </div>
+              {/* Generate buttons removed for exhibition */}
             </>
           )}
         </div>

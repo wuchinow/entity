@@ -9,10 +9,8 @@ interface LogEntry {
 
 interface SystemHealth {
   database: 'healthy' | 'degraded' | 'down';
-  replicate: 'healthy' | 'degraded' | 'down';
-  generation_queue: number;
+  generation_disabled: boolean;
   active_species: string | null;
-  last_generation: string | null;
   uptime: number;
   memory_usage?: number;
 }
@@ -145,10 +143,8 @@ export class MonitoringService {
     
     const health: SystemHealth = {
       database: 'down',
-      replicate: 'down',
-      generation_queue: 0,
+      generation_disabled: true,
       active_species: null,
-      last_generation: null,
       uptime: process.uptime ? process.uptime() : 0
     };
 
@@ -159,47 +155,13 @@ export class MonitoringService {
       health.database = 'healthy';
       health.active_species = systemState?.current_species_id || null;
       
-      // Check generation queue
-      const queueItems = await SupabaseService.getQueuedItems();
-      health.generation_queue = queueItems.length;
-      
-      // Get last generation time
-      const species = await SupabaseService.getAllSpecies();
-      const lastGenerated = species
-        .filter(s => s.image_generated_at || s.video_generated_at)
-        .sort((a, b) => {
-          const aTime = Math.max(
-            new Date(a.image_generated_at || 0).getTime(),
-            new Date(a.video_generated_at || 0).getTime()
-          );
-          const bTime = Math.max(
-            new Date(b.image_generated_at || 0).getTime(),
-            new Date(b.video_generated_at || 0).getTime()
-          );
-          return bTime - aTime;
-        })[0];
-      
-      if (lastGenerated) {
-        health.last_generation = Math.max(
-          new Date(lastGenerated.image_generated_at || 0).getTime(),
-          new Date(lastGenerated.video_generated_at || 0).getTime()
-        ).toString();
-      }
-      
     } catch (error) {
       this.error('Database health check failed', { error: error instanceof Error ? error.message : 'Unknown error' });
       health.database = 'down';
     }
 
-    try {
-      // Check Replicate API
-      const { ReplicateService } = await import('./replicate');
-      const isValid = await ReplicateService.validateConnection();
-      health.replicate = isValid ? 'healthy' : 'down';
-    } catch (error) {
-      this.error('Replicate health check failed', { error: error instanceof Error ? error.message : 'Unknown error' });
-      health.replicate = 'down';
-    }
+    // Replicate API has been disabled for security reasons
+    this.info('Generation services disabled for security - API keys removed');
 
     // Add memory usage if available
     if (typeof process !== 'undefined' && process.memoryUsage) {

@@ -273,7 +273,7 @@ export class MediaStorageService {
       }
       
       // Try to get the file info directly first
-      const { data: fileData, error: fileError } = await supabaseAdmin.storage
+      const { data: fileData } = await supabaseAdmin.storage
         .from(this.BUCKET_NAME)
         .getPublicUrl(filePath);
       

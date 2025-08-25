@@ -56,6 +56,7 @@ export default function AdminPage() {
     listDescription: '',
     file: null as File | null
   });
+  
 
   useEffect(() => {
     setMounted(true);
@@ -71,6 +72,7 @@ export default function AdminPage() {
     
     return () => clearInterval(interval);
   }, []);
+
 
   const loadData = async () => {
     try {
@@ -236,6 +238,7 @@ export default function AdminPage() {
       setIsImporting(false);
     }
   };
+
 
   if (!mounted) {
     return (
@@ -909,6 +912,7 @@ export default function AdminPage() {
                 </button>
               </div>
             </div>
+
 
           </>
         )}

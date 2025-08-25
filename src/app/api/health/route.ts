@@ -6,7 +6,7 @@ export async function GET(request: NextRequest) {
     const health = await MonitoringService.checkSystemHealth();
     const stats = MonitoringService.getSystemStats();
     
-    const isHealthy = health.database === 'healthy' && health.replicate === 'healthy';
+    const isHealthy = health.database === 'healthy';
     
     return NextResponse.json({
       status: isHealthy ? 'healthy' : 'degraded',
