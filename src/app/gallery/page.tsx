@@ -631,17 +631,63 @@ export default function GalleryPage() {
           color-scheme: dark !important;
         }
         
+        /* ===== OPTIMIZED IMAGE DISPLAY FOR MAXIMUM SPACE UTILIZATION ===== */
+        
+        /* Base media container - allow full flexibility */
+        .media-container {
+          overflow: hidden;
+        }
+        
+        /* Main media display container - maximize available space */
+        .mobile-media-display {
+          overflow: hidden;
+        }
+        
+        /* Optimized image display - fill available space while maintaining aspect ratio */
+        .mobile-media-display img {
+          max-width: 100%;
+          max-height: 100%;
+          width: auto;
+          height: auto;
+          object-fit: contain;
+          object-position: center;
+          display: block;
+        }
+        
+        /* Optimized video display - fill available space while maintaining aspect ratio */
+        .mobile-media-display video {
+          max-width: 100%;
+          max-height: 100%;
+          width: auto;
+          height: auto;
+          object-fit: contain;
+          object-position: center;
+          display: block;
+        }
+        
+        /* Desktop and large screens - maximize space */
+        @media (min-width: 769px) {
+          .media-container {
+            padding: 10px;
+          }
+          
+          .mobile-media-display {
+            padding: 10px;
+          }
+        }
+        
+        /* Mobile layout optimizations */
         @media (max-width: 768px) {
           .gallery-container {
             flex-direction: column !important;
           }
           .species-list {
             width: 100% !important;
-            height: 300px !important;
+            height: 280px !important;
             order: 2 !important;
           }
           .species-list-scroll {
-            max-height: 250px !important;
+            max-height: 230px !important;
           }
           .main-display {
             order: 1 !important;
@@ -652,84 +698,76 @@ export default function GalleryPage() {
           .mobile-header-stack {
             flex-direction: column !important;
             align-items: flex-start !important;
-            gap: 16px !important;
+            gap: 12px !important;
           }
           
-          /* Smaller font sizes for mobile - further compressed */
+          /* Compact mobile text */
           .mobile-species-title {
             font-size: 18px !important;
-            line-height: 1.0 !important;
-            margin-bottom: 2px !important;
+            line-height: 1.1 !important;
+            margin-bottom: 4px !important;
           }
           
           .mobile-species-scientific {
             font-size: 12px !important;
-            margin-bottom: 6px !important;
+            margin-bottom: 8px !important;
           }
           
           .mobile-species-details {
             font-size: 11px !important;
             text-align: left !important;
-            line-height: 1.2 !important;
+            line-height: 1.3 !important;
           }
           
           .mobile-species-details > div {
-            margin-bottom: 2px !important;
+            margin-bottom: 3px !important;
           }
           
-          /* Reduce padding around media for more space */
+          /* Optimize media container for mobile - maximize space */
           .mobile-media-container {
-            padding: 8px !important;
-            max-height: calc(100vh - 220px) !important;
+            padding: 5px !important;
           }
           
-          /* Reduce header padding further */
+          /* Compact header */
           .mobile-header-section {
-            padding: 12px !important;
+            padding: 15px !important;
           }
           
-          /* Add padding below media navigation to prevent thumbnail cropping */
+          /* Compact navigation */
           .mobile-media-navigation {
-            margin-bottom: 20px !important;
-            padding-bottom: 15px !important;
+            margin-bottom: 10px !important;
+            padding-bottom: 10px !important;
           }
           
-          /* Optimize Entity v1.0 section for mobile */
-          .mobile-entity-title {
-            font-size: 18px !important;
-          }
-          
-          .mobile-entity-subtitle {
-            font-size: 10px !important;
-            margin-top: 2px !important;
-          }
-          
-          .mobile-entity-buttons {
-            padding: 8px 12px !important;
-            min-width: 40px !important;
-            height: 36px !important;
-          }
-          
+          /* Hide entity section on mobile for more space */
           .mobile-entity-section {
             display: none !important;
           }
+        }
+        
+        /* Compact layout for very small screens */
+        @media (max-width: 414px) {
+          .mobile-header-section {
+            padding: 10px !important;
+          }
           
-          /* Fix media display to prevent cropping */
-          .mobile-media-display {
-            max-width: calc(100vw - 20px) !important;
-            max-height: calc(100vh - 280px) !important;
+          .mobile-media-container {
+            padding: 3px !important;
           }
         }
         
+        /* Short screen optimizations */
         @media (max-height: 700px) {
-          .media-container {
-            max-height: calc(100vh - 250px) !important;
-          }
-          .controls-section {
+          .mobile-header-section {
             padding: 15px !important;
           }
-          .header-section {
-            padding: 20px !important;
+          
+          .species-list {
+            height: 250px !important;
+          }
+          
+          .species-list-scroll {
+            max-height: 200px !important;
           }
         }
       `}</style>
@@ -1089,9 +1127,10 @@ export default function GalleryPage() {
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                padding: '20px',
-                minHeight: '0', // Allow flex shrinking
-                overflow: 'hidden' // Prevent overflow
+                padding: '15px',
+                minHeight: '0',
+                overflow: 'hidden',
+                position: 'relative'
               }}>
                 {loadingMedia ? (
                   <div style={{ textAlign: 'center', color: '#666' }}>
@@ -1127,10 +1166,11 @@ export default function GalleryPage() {
                         alignItems: 'center',
                         justifyContent: 'center',
                         width: '100%',
-                        minHeight: '200px',
-                        maxHeight: 'calc(100vh - 300px)', // Adjusted for removed navigation
-                        overflow: 'hidden', // Prevent overflow
-                        padding: '20px' // Add padding around media
+                        height: '100%',
+                        minHeight: '300px',
+                        overflow: 'hidden',
+                        padding: '10px',
+                        position: 'relative'
                       }}>
                         {/* Always prioritize image display first, then video */}
                         {selectedMedia === 'image' && (currentImageUrl || getBestImageUrl(selectedSpecies)) ? (
@@ -1152,7 +1192,8 @@ export default function GalleryPage() {
                                 width: 'auto',
                                 height: 'auto',
                                 borderRadius: '8px',
-                                objectFit: 'contain', // Preserve aspect ratio
+                                objectFit: 'contain',
+                                objectPosition: 'center',
                                 display: 'block'
                               }}
                               onLoad={() => console.log('Image loaded:', currentImageUrl || getBestImageUrl(selectedSpecies))}
@@ -1185,7 +1226,8 @@ export default function GalleryPage() {
                                 width: 'auto',
                                 height: 'auto',
                                 borderRadius: '8px',
-                                objectFit: 'contain', // Preserve aspect ratio
+                                objectFit: 'contain',
+                                objectPosition: 'center',
                                 display: 'block'
                               }}
                             />
