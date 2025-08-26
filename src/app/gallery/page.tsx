@@ -644,37 +644,43 @@ export default function GalleryPage() {
             gap: 16px !important;
           }
           
-          /* Smaller font sizes for mobile */
+          /* Smaller font sizes for mobile - further compressed */
           .mobile-species-title {
-            font-size: 20px !important;
-            line-height: 1.1 !important;
-            margin-bottom: 4px !important;
+            font-size: 18px !important;
+            line-height: 1.0 !important;
+            margin-bottom: 2px !important;
           }
           
           .mobile-species-scientific {
-            font-size: 13px !important;
-            margin-bottom: 8px !important;
+            font-size: 12px !important;
+            margin-bottom: 6px !important;
           }
           
           .mobile-species-details {
-            font-size: 12px !important;
+            font-size: 11px !important;
             text-align: left !important;
-            line-height: 1.3 !important;
+            line-height: 1.2 !important;
           }
           
           .mobile-species-details > div {
-            margin-bottom: 4px !important;
+            margin-bottom: 2px !important;
           }
           
           /* Reduce padding around media for more space */
           .mobile-media-container {
-            padding: 10px !important;
-            max-height: calc(100vh - 250px) !important;
+            padding: 8px !important;
+            max-height: calc(100vh - 220px) !important;
           }
           
-          /* Reduce header padding */
+          /* Reduce header padding further */
           .mobile-header-section {
-            padding: 15px !important;
+            padding: 12px !important;
+          }
+          
+          /* Add padding below media navigation to prevent thumbnail cropping */
+          .mobile-media-navigation {
+            margin-bottom: 20px !important;
+            padding-bottom: 15px !important;
           }
           
           /* Optimize Entity v1.0 section for mobile */
@@ -1184,7 +1190,7 @@ export default function GalleryPage() {
 
                     {/* Media Navigation */}
                     {speciesMedia && (
-                      <div style={{
+                      <div className="mobile-media-navigation" style={{
                         display: 'flex',
                         flexDirection: 'column',
                         gap: '15px',
