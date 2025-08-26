@@ -515,26 +515,39 @@ export default function AdminPage() {
         {/* Timeline */}
         <div style={{ marginBottom: '24px' }}>
           <h4 style={{ fontSize: '14px', fontWeight: '300', margin: '0 0 12px 0', color: '#ccc' }}>Extinctions by Decade</h4>
-          <div style={{ display: 'flex', alignItems: 'end', gap: '8px', height: '80px' }}>
-            {Object.entries(extinctionDecades)
-              .sort(([a], [b]) => a.localeCompare(b))
-              .map(([decade, count]) => (
-                <div key={decade} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1 }}>
-                  <div style={{
-                    height: `${(count / maxDecadeCount) * 60}px`,
-                    background: 'linear-gradient(180deg, #3b82f6, #1d4ed8)',
-                    width: '100%',
-                    borderRadius: '2px 2px 0 0',
-                    minHeight: '4px'
-                  }}></div>
-                  <div style={{ fontSize: '10px', color: '#888', marginTop: '4px', transform: 'rotate(-45deg)', transformOrigin: 'center' }}>
-                    {decade}
+          <div style={{
+            overflowX: 'auto',
+            paddingBottom: '8px',
+            // Mobile-specific horizontal scroll
+            WebkitOverflowScrolling: 'touch'
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'end',
+              gap: '8px',
+              height: '80px',
+              minWidth: '600px' // Ensure minimum width for proper display
+            }}>
+              {Object.entries(extinctionDecades)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([decade, count]) => (
+                  <div key={decade} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, minWidth: '50px' }}>
+                    <div style={{
+                      height: `${(count / maxDecadeCount) * 60}px`,
+                      background: 'linear-gradient(180deg, #3b82f6, #1d4ed8)',
+                      width: '100%',
+                      borderRadius: '2px 2px 0 0',
+                      minHeight: '4px'
+                    }}></div>
+                    <div style={{ fontSize: '10px', color: '#888', marginTop: '4px', transform: 'rotate(-45deg)', transformOrigin: 'center' }}>
+                      {decade}
+                    </div>
+                    <div style={{ fontSize: '10px', color: '#60a5fa', marginTop: '2px' }}>
+                      {count}
+                    </div>
                   </div>
-                  <div style={{ fontSize: '10px', color: '#60a5fa', marginTop: '2px' }}>
-                    {count}
-                  </div>
-                </div>
-              ))}
+                ))}
+            </div>
           </div>
         </div>
 
@@ -601,7 +614,7 @@ export default function AdminPage() {
         </h3>
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
           gap: '20px',
           maxHeight: 'calc(100vh - 300px)',
           overflowY: 'auto',
@@ -648,7 +661,7 @@ export default function AdminPage() {
                     style={{
                       width: '100%',
                       height: '100%',
-                      objectFit: 'cover'
+                      objectFit: 'contain'
                     }}
                     onError={(e) => {
                       console.error('Image failed to load:', s.supabase_image_url);
@@ -661,7 +674,7 @@ export default function AdminPage() {
                     style={{
                       width: '100%',
                       height: '100%',
-                      objectFit: 'cover'
+                      objectFit: 'contain'
                     }}
                     onError={(e) => {
                       console.error('Video failed to load:', s.supabase_video_url);
@@ -683,20 +696,21 @@ export default function AdminPage() {
                   </div>
                 )}
                 
-                {/* Media type indicator */}
-                <div style={{
-                  position: 'absolute',
-                  top: '8px',
-                  right: '8px',
-                  background: 'rgba(0, 0, 0, 0.7)',
-                  borderRadius: '4px',
-                  padding: '4px 8px',
-                  fontSize: '10px',
-                  color: '#fff'
-                }}>
-                  {s.supabase_image_url && s.supabase_video_url ? 'Both' :
-                   s.supabase_image_url ? 'Image' : 'Video'}
-                </div>
+                {/* Media type indicator - removed 'Both' label */}
+                {!(s.supabase_image_url && s.supabase_video_url) && (
+                  <div style={{
+                    position: 'absolute',
+                    top: '8px',
+                    right: '8px',
+                    background: 'rgba(0, 0, 0, 0.7)',
+                    borderRadius: '4px',
+                    padding: '4px 8px',
+                    fontSize: '10px',
+                    color: '#fff'
+                  }}>
+                    {s.supabase_image_url ? 'Image' : 'Video'}
+                  </div>
+                )}
               </div>
               
               {/* Species Info */}
@@ -786,7 +800,7 @@ export default function AdminPage() {
                   borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
                   background: index % 2 === 0 ? 'transparent' : 'rgba(255, 255, 255, 0.02)'
                 }}>
-                  <td style={{ padding: '8px', fontWeight: '300' }}>
+                  <td style={{ padding: '8px', fontWeight: '300', textAlign: 'left' }}>
                     {(s.supabase_image_url || s.supabase_video_url) ? (
                       <button
                         onClick={() => openModal(s, s.supabase_image_url ? 'image' : 'video')}
@@ -798,7 +812,8 @@ export default function AdminPage() {
                           textDecoration: 'underline',
                           fontSize: 'inherit',
                           fontFamily: 'inherit',
-                          fontWeight: '300'
+                          fontWeight: '300',
+                          textAlign: 'left'
                         }}
                       >
                         {s.common_name}

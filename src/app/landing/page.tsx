@@ -89,7 +89,7 @@ export default function LandingPage() {
                 margin: '0 0 40px 0',
                 color: '#ccc'
               }}>
-                Extinct species generator
+                AI-powered extinct species generator
               </h2>
               
               <div style={{

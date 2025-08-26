@@ -626,15 +626,54 @@ export default function GalleryPage() {
           }
           .species-list {
             width: 100% !important;
-            height: 300px !important;
+            height: 280px !important;
             order: 2 !important;
           }
           .species-list-scroll {
-            max-height: 250px !important;
+            max-height: 230px !important;
           }
           .main-display {
             order: 1 !important;
             flex: 1 !important;
+          }
+          
+          /* Mobile header layout - stack vertically */
+          .mobile-header-stack {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 16px !important;
+          }
+          
+          /* Smaller font sizes for mobile */
+          .mobile-species-title {
+            font-size: 22px !important;
+            line-height: 1.2 !important;
+            margin-bottom: 8px !important;
+          }
+          
+          .mobile-species-scientific {
+            font-size: 14px !important;
+            margin-bottom: 12px !important;
+          }
+          
+          .mobile-species-details {
+            font-size: 13px !important;
+            text-align: left !important;
+            line-height: 1.4 !important;
+          }
+          
+          .mobile-species-details > div {
+            margin-bottom: 6px !important;
+          }
+          
+          /* Reduce padding around media for more space */
+          .mobile-media-container {
+            padding: 15px !important;
+          }
+          
+          /* Reduce header padding */
+          .mobile-header-section {
+            padding: 20px !important;
           }
         }
         
@@ -936,25 +975,25 @@ export default function GalleryPage() {
         <div className="main-display" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
           {selectedSpecies && (
             <>
-              {/* Header - Space-saving layout with details on the right */}
-              <div className="header-section" style={{
+              {/* Header - Mobile responsive layout */}
+              <div className="header-section mobile-header-section" style={{
                 padding: '30px',
                 borderBottom: '1px solid rgba(255,255,255,0.1)',
                 background: 'rgba(0,0,0,0.2)'
               }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  {/* Left side - Names */}
+                <div className="mobile-header-stack" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  {/* Species Names */}
                   <div style={{ flex: '0 0 auto', marginRight: '40px' }}>
-                    <h1 style={{ margin: 0, fontSize: '28px', fontWeight: '300', marginBottom: '10px' }}>
+                    <h1 className="mobile-species-title" style={{ margin: 0, fontSize: '28px', fontWeight: '300', marginBottom: '10px' }}>
                       {selectedSpecies.common_name}
                     </h1>
-                    <p style={{ margin: 0, fontSize: '16px', color: '#ccc', fontStyle: 'italic' }}>
+                    <p className="mobile-species-scientific" style={{ margin: 0, fontSize: '16px', color: '#ccc', fontStyle: 'italic' }}>
                       {selectedSpecies.scientific_name}
                     </p>
                   </div>
                   
-                  {/* Right side - Details */}
-                  <div style={{
+                  {/* Species Details - will move below names on mobile */}
+                  <div className="mobile-species-details" style={{
                     flex: '0 0 auto',
                     fontSize: '14px',
                     color: '#aaa',
@@ -994,7 +1033,7 @@ export default function GalleryPage() {
               )}
 
               {/* Media Display */}
-              <div className="media-container" style={{
+              <div className="media-container mobile-media-container" style={{
                 flex: 1,
                 display: 'flex',
                 flexDirection: 'column',
