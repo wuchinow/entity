@@ -694,7 +694,7 @@ export default function GalleryPage() {
           }
           
           .mobile-entity-section {
-            padding: 15px !important;
+            display: none !important;
           }
           
           /* Fix media display to prevent cropping */
