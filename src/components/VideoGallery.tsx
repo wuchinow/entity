@@ -10,16 +10,16 @@ interface Species {
   year_extinct: string;
   last_location: string;
   extinction_cause: string;
-  supabase_image_url?: string;
-  image_url?: string;
+  supabase_video_url?: string;
+  video_url?: string;
   generation_status: string;
 }
 
-interface SpeciesDisplayProps {
+interface VideoGalleryProps {
   className?: string;
 }
 
-export default function SpeciesDisplay({ className = '' }: SpeciesDisplayProps) {
+export default function VideoGallery({ className = '' }: VideoGalleryProps) {
   const [species, setSpecies] = useState<Species[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -46,16 +46,16 @@ export default function SpeciesDisplay({ className = '' }: SpeciesDisplayProps) 
       const data = await response.json();
       
       if (data.species && Array.isArray(data.species)) {
-        // Filter species that have images
-        const speciesWithImages = data.species.filter((s: Species) =>
-          s.supabase_image_url || s.image_url
+        // Filter species that have videos
+        const speciesWithVideos = data.species.filter((s: Species) => 
+          s.supabase_video_url || s.video_url
         );
         
-        setSpecies(speciesWithImages);
+        setSpecies(speciesWithVideos);
         
         // Start with random species
-        if (speciesWithImages.length > 0) {
-          const randomIndex = Math.floor(Math.random() * speciesWithImages.length);
+        if (speciesWithVideos.length > 0) {
+          const randomIndex = Math.floor(Math.random() * speciesWithVideos.length);
           setCurrentIndex(randomIndex);
         }
       }
@@ -67,8 +67,8 @@ export default function SpeciesDisplay({ className = '' }: SpeciesDisplayProps) 
     }
   };
 
-  const getBestImageUrl = (species: Species) => {
-    return species.supabase_image_url || species.image_url;
+  const getBestVideoUrl = (species: Species) => {
+    return species.supabase_video_url || species.video_url;
   };
 
   const nextSpecies = () => {
@@ -94,7 +94,7 @@ export default function SpeciesDisplay({ className = '' }: SpeciesDisplayProps) 
       }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: '28px', fontWeight: '300', marginBottom: '16px', fontStyle: 'italic' }}>Entity v1.0</div>
-          <div style={{ fontSize: '18px', fontWeight: '300' }}>Loading Image Slideshow...</div>
+          <div style={{ fontSize: '18px', fontWeight: '300' }}>Loading Video Slideshow...</div>
         </div>
       </div>
     );
@@ -113,14 +113,14 @@ export default function SpeciesDisplay({ className = '' }: SpeciesDisplayProps) 
       }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: '28px', fontWeight: '300', marginBottom: '16px', fontStyle: 'italic' }}>Entity v1.0</div>
-          <div style={{ fontSize: '18px', fontWeight: '300' }}>No images available</div>
+          <div style={{ fontSize: '18px', fontWeight: '300' }}>No videos available</div>
         </div>
       </div>
     );
   }
 
   return (
-    <div
+    <div 
       style={{
         minHeight: '100vh',
         background: 'linear-gradient(135deg, #0c0c0c 0%, #1a1a1a 50%, #0f0f0f 100%)',
@@ -180,7 +180,7 @@ export default function SpeciesDisplay({ className = '' }: SpeciesDisplayProps) 
         </AnimatePresence>
       </div>
 
-      {/* Image Display Area with padding below */}
+      {/* Video Display Area with padding below */}
       <div style={{
         flex: 1,
         display: 'flex',
@@ -190,11 +190,14 @@ export default function SpeciesDisplay({ className = '' }: SpeciesDisplayProps) 
         position: 'relative'
       }}>
         <AnimatePresence mode="wait">
-          {currentSpecies && getBestImageUrl(currentSpecies) && (
-            <motion.img
-              key={`image-${currentSpecies.id}`}
-              src={getBestImageUrl(currentSpecies)}
-              alt={`Generated image of ${currentSpecies.common_name}`}
+          {currentSpecies && getBestVideoUrl(currentSpecies) && (
+            <motion.video
+              key={`video-${currentSpecies.id}`}
+              src={getBestVideoUrl(currentSpecies)}
+              autoPlay
+              loop
+              muted
+              playsInline
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
@@ -205,6 +208,15 @@ export default function SpeciesDisplay({ className = '' }: SpeciesDisplayProps) 
                 objectFit: 'contain',
                 borderRadius: '12px',
                 boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.4)'
+              }}
+              onError={(e) => {
+                console.error('Video failed to load:', getBestVideoUrl(currentSpecies));
+                // Try fallback URL if Supabase URL fails
+                const currentSrc = (e.target as HTMLVideoElement).src;
+                if (currentSpecies.supabase_video_url && currentSrc === currentSpecies.supabase_video_url && currentSpecies.video_url) {
+                  console.log('Falling back to Replicate URL for video');
+                  (e.target as HTMLVideoElement).src = currentSpecies.video_url;
+                }
               }}
             />
           )}

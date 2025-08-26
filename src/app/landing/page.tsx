@@ -57,19 +57,6 @@ export default function LandingPage() {
           >
             Entity v1.0
           </motion.div>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.8, delay: 0.2 }}
-            style={{ display: 'flex', gap: '30px' }}
-          >
-            <Link
-              href="/admin"
-              style={{ fontSize: '14px', fontWeight: '300', color: '#ccc', textDecoration: 'none' }}
-            >
-              Admin
-            </Link>
-          </motion.div>
         </header>
 
         {/* Main Content */}
@@ -86,23 +73,41 @@ export default function LandingPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 1, delay: 0.4 }}
             >
-              <h1 style={{ 
-                fontSize: '72px', 
-                fontWeight: '300', 
+              <h1 style={{
+                fontSize: '72px',
+                fontWeight: '300',
                 margin: '0 0 40px 0',
-                letterSpacing: '2px'
+                letterSpacing: '2px',
+                fontStyle: 'italic'
               }}>
                 Entity
               </h1>
               
-              <h2 style={{ 
-                fontSize: '18px', 
-                fontWeight: '300', 
-                margin: '0 0 60px 0', 
-                color: '#ccc' 
+              <h2 style={{
+                fontSize: '18px',
+                fontWeight: '300',
+                margin: '0 0 40px 0',
+                color: '#ccc'
               }}>
-                AI-powered extinct species generator
+                Extinct species generator
               </h2>
+              
+              <div style={{
+                fontSize: '16px',
+                fontWeight: '300',
+                lineHeight: '1.6',
+                color: '#aaa',
+                maxWidth: '600px',
+                margin: '0 auto 60px auto',
+                textAlign: 'left'
+              }}>
+                <p style={{ marginBottom: '20px' }}>
+                  Launched in August 2025, <em>Entity</em> is an AI-powered extinct species generator created by artist and professor G. Craig Hobbs with design and AI development by David Martin.
+                </p>
+                <p style={{ marginBottom: '20px' }}>
+                  Compiled from AI generated lists compiled using Anthropic's <a href="https://www.anthropic.com/claude" style={{ color: '#60a5fa', textDecoration: 'none' }}>Claude</a>, the work regenerates images and videos of extinct species, date of extinction, location, and cause. <em><a href="https://entity-gamma.vercel.app/landing" style={{ color: '#60a5fa', textDecoration: 'none' }}>Entity</a></em> provides users a navigable database of AI-regenerated species as form of reflection on extinction, art and science through species that are no longer with us.
+                </p>
+              </div>
             </motion.div>
 
             {/* Action Buttons */}
@@ -117,7 +122,7 @@ export default function LandingPage() {
                 flexWrap: 'wrap'
               }}
             >
-              <Link href="/gallery">
+              <Link href="/gallery?random=true">
                 <motion.button
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
@@ -135,7 +140,7 @@ export default function LandingPage() {
                     minWidth: '140px'
                   }}
                 >
-                  Gallery
+                  Enter
                 </motion.button>
               </Link>
             </motion.div>
@@ -148,9 +153,17 @@ export default function LandingPage() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 0.8, delay: 1.4 }}
-            style={{ fontSize: '12px', color: '#666', fontWeight: '300' }}
+            style={{ fontSize: '12px', color: '#666', fontWeight: '300', lineHeight: '1.4' }}
           >
-            Interactive Art Installation • 2025
+            <a href="https://entity-gamma.vercel.app/landing" style={{ color: '#666', textDecoration: 'none' }}>Entity</a> © 2025 by{' '}
+            <a href="https://creativecommons.org/" style={{ color: '#666', textDecoration: 'none' }}>G. Craig Hobbs, David Martin</a> is licensed under{' '}
+            <a href="https://creativecommons.org/licenses/by-nc-nd/4.0/" style={{ color: '#666', textDecoration: 'none' }}>CC BY-NC-ND 4.0</a>
+            <div style={{ display: 'inline-flex', alignItems: 'center', marginLeft: '8px' }}>
+              <img src="https://mirrors.creativecommons.org/presskit/icons/cc.svg" alt="" style={{ maxWidth: '1em', maxHeight: '1em', marginLeft: '.2em' }} />
+              <img src="https://mirrors.creativecommons.org/presskit/icons/by.svg" alt="" style={{ maxWidth: '1em', maxHeight: '1em', marginLeft: '.2em' }} />
+              <img src="https://mirrors.creativecommons.org/presskit/icons/nc.svg" alt="" style={{ maxWidth: '1em', maxHeight: '1em', marginLeft: '.2em' }} />
+              <img src="https://mirrors.creativecommons.org/presskit/icons/nd.svg" alt="" style={{ maxWidth: '1em', maxHeight: '1em', marginLeft: '.2em' }} />
+            </div>
           </motion.div>
         </footer>
       </div>

@@ -1,5 +1,10 @@
 import SpeciesDisplay from '@/components/SpeciesDisplay';
 
-export default function DisplayPage() {
+export const metadata = {
+  title: 'Image Gallery - Entity v1.0',
+  description: 'AI-generated images of extinct species'
+};
+
+export default function ImageGalleryPage() {
   return <SpeciesDisplay />;
 }

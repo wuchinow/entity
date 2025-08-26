@@ -1110,20 +1110,13 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* Main Tabs - Reordered: Dashboard → Landing Page → Main Gallery → Media → Species Database */}
+        {/* Main Tabs - Reordered: Dashboard → Main Gallery → Media → Species Database */}
         <div style={{ marginBottom: '20px', display: 'flex', flexWrap: 'wrap' }}>
           <button
             style={tabStyle(activeTab === 'dashboard')}
             onClick={() => setActiveTab('dashboard')}
           >
             Dashboard
-          </button>
-          <button
-            style={tabStyle(false)}
-            onClick={() => window.open('/landing', '_blank')}
-            title="Open Landing Page in new tab"
-          >
-            Landing Page
           </button>
           <button
             style={tabStyle(false)}

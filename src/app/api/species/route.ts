@@ -3,9 +3,23 @@ import { createClient } from '@supabase/supabase-js';
 import { NewCSVImportService } from '@/lib/new-csv-import';
 
 // Use service role key for server-side operations to ensure we can read all data
+// Optimized for concurrent users with connection pooling
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  {
+    db: {
+      schema: 'public',
+    },
+    auth: {
+      persistSession: false, // Disable session persistence for API routes
+    },
+    global: {
+      headers: {
+        'Cache-Control': 'public, max-age=60', // Cache responses for 1 minute
+      },
+    },
+  }
 );
 
 export async function GET(request: NextRequest) {
@@ -115,7 +129,14 @@ export async function GET(request: NextRequest) {
       response.activeList = activeList;
     }
     
-    return NextResponse.json(response);
+    const jsonResponse = NextResponse.json(response);
+    
+    // Add caching headers for better performance with concurrent users
+    jsonResponse.headers.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+    jsonResponse.headers.set('CDN-Cache-Control', 'public, max-age=300');
+    jsonResponse.headers.set('Vary', 'Accept-Encoding');
+    
+    return jsonResponse;
     
   } catch (error) {
     console.error('Error in species API:', error);

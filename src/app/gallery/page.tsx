@@ -93,8 +93,17 @@ export default function GalleryPage() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
 
+  const [selectRandomOnLoad, setSelectRandomOnLoad] = useState(false);
+
   useEffect(() => {
     setMounted(true);
+    
+    // Check for random parameter from landing page
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('random') === 'true') {
+      // Set flag to select random species after loading
+      setSelectRandomOnLoad(true);
+    }
   }, []);
 
   // Set up real-time subscriptions for automatic updates
@@ -327,7 +336,18 @@ export default function GalleryPage() {
       // Only set selected species if we're not preserving selection or if no species is selected
       if (!preserveSelection || !selectedSpecies) {
         if (speciesList.length > 0) {
-          setSelectedSpecies(speciesList[0]);
+          // Check if we should select a random species (from landing page)
+          if (selectRandomOnLoad) {
+            const randomIndex = Math.floor(Math.random() * speciesList.length);
+            setSelectedSpecies(speciesList[randomIndex]);
+            setSelectRandomOnLoad(false); // Reset the flag
+            console.log(`Selected random species: ${speciesList[randomIndex].common_name}`);
+          } else {
+            // Always start with a random species for better user experience
+            const randomIndex = Math.floor(Math.random() * speciesList.length);
+            setSelectedSpecies(speciesList[randomIndex]);
+            console.log(`Selected random species on load: ${speciesList[randomIndex].common_name}`);
+          }
         } else {
           console.warn('No species found in database');
           setMessage('No species found in database. Please load species data first.');
@@ -606,10 +626,15 @@ export default function GalleryPage() {
           }
           .species-list {
             width: 100% !important;
-            height: 200px !important;
+            height: 300px !important;
+            order: 2 !important;
           }
           .species-list-scroll {
-            max-height: 150px !important;
+            max-height: 250px !important;
+          }
+          .main-display {
+            order: 1 !important;
+            flex: 1 !important;
           }
         }
         
@@ -635,15 +660,95 @@ export default function GalleryPage() {
           display: 'flex',
           flexDirection: 'column'
         }}>
+          
+          {/* Header with Entity title and navigation */}
           <div style={{
             padding: '20px',
             borderBottom: '1px solid rgba(255,255,255,0.1)',
             background: 'rgba(0,0,0,0.2)'
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '300' }}>
-                Extinct Species ({species.length})
-              </h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h1 style={{
+                  margin: 0,
+                  fontSize: '24px',
+                  fontWeight: '300',
+                  fontStyle: 'italic',
+                  color: '#fff'
+                }}>
+                  Entity v1.0
+                </h1>
+                <p style={{
+                  margin: '4px 0 0 0',
+                  fontSize: '12px',
+                  color: '#888',
+                  fontWeight: '300'
+                }}>
+                  Extinct Species Gallery
+                </p>
+              </div>
+              
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button
+                  onClick={() => window.location.href = '/landing'}
+                  style={{
+                    background: 'rgba(255,255,255,0.1)',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    borderRadius: '6px',
+                    padding: '12px 16px',
+                    color: '#fff',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    transition: 'all 0.2s ease',
+                    minWidth: '50px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.2)';
+                    e.currentTarget.setAttribute('title', 'Back to Landing');
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                  }}
+                >
+                  ←
+                </button>
+                
+                <button
+                  onClick={() => window.location.href = '/admin'}
+                  style={{
+                    background: 'rgba(255,255,255,0.1)',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    borderRadius: '6px',
+                    padding: '12px 16px',
+                    color: '#fff',
+                    cursor: 'pointer',
+                    fontSize: '16px',
+                    transition: 'all 0.2s ease',
+                    minWidth: '52px',
+                    height: '44px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontWeight: '400'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'rgba(59, 130, 246, 0.2)';
+                    e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.4)';
+                    e.currentTarget.style.color = '#60a5fa';
+                    e.currentTarget.setAttribute('title', 'Admin Dashboard');
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+                    e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)';
+                    e.currentTarget.style.color = '#fff';
+                  }}
+                >
+                  ◉
+                </button>
+              </div>
             </div>
           </div>
           
@@ -828,25 +933,47 @@ export default function GalleryPage() {
         </div>
 
         {/* Main Display - Right Side */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+        <div className="main-display" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
           {selectedSpecies && (
             <>
-              {/* Header */}
+              {/* Header - Space-saving layout with details on the right */}
               <div className="header-section" style={{
                 padding: '30px',
                 borderBottom: '1px solid rgba(255,255,255,0.1)',
                 background: 'rgba(0,0,0,0.2)'
               }}>
-                <h1 style={{ margin: 0, fontSize: '28px', fontWeight: '300', marginBottom: '10px' }}>
-                  {selectedSpecies.common_name}
-                </h1>
-                <p style={{ margin: 0, fontSize: '16px', color: '#ccc', fontStyle: 'italic' }}>
-                  {selectedSpecies.scientific_name}
-                </p>
-                <div style={{ marginTop: '15px', fontSize: '14px', color: '#aaa' }}>
-                  <div>Extinct: {selectedSpecies.year_extinct}</div>
-                  <div>Last seen: {selectedSpecies.last_location}</div>
-                  <div>Cause: {selectedSpecies.extinction_cause}</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  {/* Left side - Names */}
+                  <div style={{ flex: '0 0 auto', marginRight: '40px' }}>
+                    <h1 style={{ margin: 0, fontSize: '28px', fontWeight: '300', marginBottom: '10px' }}>
+                      {selectedSpecies.common_name}
+                    </h1>
+                    <p style={{ margin: 0, fontSize: '16px', color: '#ccc', fontStyle: 'italic' }}>
+                      {selectedSpecies.scientific_name}
+                    </p>
+                  </div>
+                  
+                  {/* Right side - Details */}
+                  <div style={{
+                    flex: '0 0 auto',
+                    fontSize: '14px',
+                    color: '#aaa',
+                    textAlign: 'right',
+                    lineHeight: '1.4'
+                  }}>
+                    <div style={{ marginBottom: '4px' }}>
+                      <span style={{ color: '#888' }}>Extinct: </span>
+                      <span style={{ color: '#fff' }}>{selectedSpecies.year_extinct}</span>
+                    </div>
+                    <div style={{ marginBottom: '4px' }}>
+                      <span style={{ color: '#888' }}>Last seen: </span>
+                      <span style={{ color: '#fff' }}>{selectedSpecies.last_location}</span>
+                    </div>
+                    <div>
+                      <span style={{ color: '#888' }}>Cause: </span>
+                      <span style={{ color: '#fff' }}>{selectedSpecies.extinction_cause}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
