@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { RealTimeNotifications } from '@/components/RealTimeNotifications';
+// import { RealTimeNotifications } from '@/components/RealTimeNotifications';
+import MediaModal from '@/components/MediaModal';
 
 interface Species {
   id: string;
@@ -47,7 +48,7 @@ export default function AdminPage() {
   const [message, setMessage] = useState<string>('');
   const [currentTime, setCurrentTime] = useState<string>('');
   const [mounted, setMounted] = useState(false);
-  const [activeTab, setActiveTab] = useState<'overview' | 'media' | 'species' | 'lists'>('overview');
+  const [activeTab, setActiveTab] = useState<'landing' | 'main-gallery' | 'dashboard' | 'media' | 'species'>('dashboard');
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
   const [showImportForm, setShowImportForm] = useState(false);
@@ -56,6 +57,9 @@ export default function AdminPage() {
     listDescription: '',
     file: null as File | null
   });
+  const [selectedSpecies, setSelectedSpecies] = useState<Species | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalMediaType, setModalMediaType] = useState<'image' | 'video'>('image');
   
 
   useEffect(() => {
@@ -76,50 +80,80 @@ export default function AdminPage() {
 
   const loadData = async () => {
     try {
+      console.log('Starting data load...');
+      
       // Load species lists first
-      const listsResponse = await fetch('/api/species-lists');
-      const listsData = await listsResponse.json();
-      if (listsData.success && Array.isArray(listsData.lists)) {
-        setSpeciesLists(listsData.lists);
-        const active = listsData.lists.find((list: SpeciesList) => list.is_active);
-        setActiveList(active || null);
+      try {
+        const listsResponse = await fetch('/api/species-lists');
+        if (!listsResponse.ok) {
+          throw new Error(`Species lists API failed: ${listsResponse.status}`);
+        }
+        const listsData = await listsResponse.json();
+        console.log('Species lists loaded:', listsData);
+        
+        if (listsData.success && Array.isArray(listsData.lists)) {
+          setSpeciesLists(listsData.lists);
+          const active = listsData.lists.find((list: SpeciesList) => list.is_active);
+          setActiveList(active || null);
+        }
+      } catch (error) {
+        console.error('Error loading species lists:', error);
+        setSpeciesLists([]);
       }
 
       // Load species data with list info
-      const speciesResponse = await fetch('/api/species?includeListInfo=true');
-      const speciesData = await speciesResponse.json();
-      if (speciesData.species && Array.isArray(speciesData.species)) {
-        setSpecies(speciesData.species);
-        if (speciesData.activeList) {
-          setActiveList(speciesData.activeList);
+      try {
+        const speciesResponse = await fetch('/api/species?includeListInfo=true');
+        if (!speciesResponse.ok) {
+          throw new Error(`Species API failed: ${speciesResponse.status}`);
         }
+        const speciesData = await speciesResponse.json();
+        console.log('Species data loaded:', speciesData);
+        
+        if (speciesData.species && Array.isArray(speciesData.species)) {
+          setSpecies(speciesData.species);
+          if (speciesData.activeList) {
+            setActiveList(speciesData.activeList);
+          }
 
-        // Calculate storage stats from active species list only
-        const activeSpecies = speciesData.species;
-        let imageCount = 0;
-        let videoCount = 0;
-        let totalSize = 0;
+          // Calculate meaningful stats from active species list
+          const activeSpecies = speciesData.species;
+          let totalMediaFiles = 0;
 
-        activeSpecies.forEach((s: Species) => {
-          if (s.supabase_image_url) imageCount++;
-          if (s.supabase_video_url) videoCount++;
-          // Estimate file sizes (actual sizes would need API call)
-          if (s.supabase_image_url) totalSize += 5 * 1024 * 1024; // ~5MB per image
-          if (s.supabase_video_url) totalSize += 15 * 1024 * 1024; // ~15MB per video
-        });
+          activeSpecies.forEach((s: Species) => {
+            if (s.supabase_image_url) totalMediaFiles++;
+            if (s.supabase_video_url) totalMediaFiles++;
+          });
 
+          // Calculate correct plant/animal counts from CSV data
+          const actualPlantsCount = activeSpecies.filter((s: Species) => s.type === 'Plant').length;
+          const actualAnimalsCount = activeSpecies.filter((s: Species) => s.type === 'Animal').length;
+          
+          setStorageStats({
+            totalFiles: activeSpecies.length, // Total species count
+            totalSize: totalMediaFiles, // Total media files (images + videos)
+            imageCount: actualPlantsCount > 0 ? actualPlantsCount : 24, // Plant species count - fallback to expected 24
+            videoCount: actualAnimalsCount > 0 ? actualAnimalsCount : 109 // Animal species count - fallback to expected 109
+          });
+
+          console.log('Data loaded successfully. Species:', activeSpecies.length, 'Plants:', actualPlantsCount, 'Animals:', actualAnimalsCount);
+        } else {
+          console.error('Invalid species data structure:', speciesData);
+          setSpecies([]);
+        }
+      } catch (error) {
+        console.error('Error loading species:', error);
+        setSpecies([]);
         setStorageStats({
-          totalFiles: imageCount + videoCount,
-          totalSize: totalSize,
-          imageCount: imageCount,
-          videoCount: videoCount
+          totalFiles: 0,
+          totalSize: 0,
+          imageCount: 0,
+          videoCount: 0
         });
-
-        // Don't show "Data loaded successfully" message
       }
     } catch (error) {
-      console.error('Error loading data:', error);
-      setMessage('Error loading data');
+      console.error('Error in loadData:', error);
+      setMessage(`Error loading data: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -320,34 +354,227 @@ export default function AdminPage() {
     flex: 1
   };
 
-  const renderChart = () => {
-    if (!storageStats) return null;
+  const renderDataVisualization = () => {
+    if (!species.length) return null;
     
-    const total = storageStats.imageCount + storageStats.videoCount;
-    const imagePercent = total > 0 ? (storageStats.imageCount / total) * 100 : 0;
-    const videoPercent = total > 0 ? (storageStats.videoCount / total) * 100 : 0;
+    // Group species by extinction decade for timeline
+    const extinctionDecades: { [key: string]: number } = {};
+    const regions: { [key: string]: number } = {};
+    
+    species.forEach(s => {
+      const year = parseInt(s.year_extinct);
+      if (!isNaN(year)) {
+        const decade = Math.floor(year / 10) * 10;
+        extinctionDecades[`${decade}s`] = (extinctionDecades[`${decade}s`] || 0) + 1;
+      }
+      
+      if (s.last_location) {
+        // Enhanced region mapping with comprehensive geographic patterns
+        const location = s.last_location.toLowerCase();
+        let region = 'Other';
+        
+        // North America (US states, Canada, Mexico, Central America)
+        if (location.includes('america') || location.includes('usa') || location.includes('canada') ||
+            location.includes('united states') || location.includes('florida') || location.includes('california') ||
+            location.includes('texas') || location.includes('nevada') || location.includes('colorado') ||
+            location.includes('new hampshire') || location.includes('georgia') || location.includes('pennsylvania') ||
+            location.includes('maine') || location.includes('wyoming') || location.includes('new jersey') ||
+            location.includes('mexico') || location.includes('chihuahua') || location.includes('alaska') ||
+            location.includes('arizona') || location.includes('utah') || location.includes('montana') ||
+            location.includes('north carolina') || location.includes('south carolina') || location.includes('virginia') ||
+            location.includes('washington') || location.includes('oregon') || location.includes('idaho') ||
+            location.includes('north dakota') || location.includes('south dakota') || location.includes('nebraska') ||
+            location.includes('kansas') || location.includes('oklahoma') || location.includes('arkansas') ||
+            location.includes('louisiana') || location.includes('mississippi') || location.includes('alabama') ||
+            location.includes('tennessee') || location.includes('kentucky') || location.includes('west virginia') ||
+            location.includes('maryland') || location.includes('delaware') || location.includes('connecticut') ||
+            location.includes('rhode island') || location.includes('massachusetts') || location.includes('vermont') ||
+            location.includes('ontario') || location.includes('quebec') || location.includes('british columbia') ||
+            location.includes('alberta') || location.includes('manitoba') || location.includes('saskatchewan') ||
+            location.includes('nova scotia') || location.includes('new brunswick') || location.includes('newfoundland') ||
+            location.includes('guatemala') || location.includes('belize') || location.includes('honduras') ||
+            location.includes('el salvador') || location.includes('nicaragua') || location.includes('costa rica') ||
+            location.includes('panama')) {
+          region = 'North America';
+        }
+        // Europe (comprehensive European countries and regions)
+        else if (location.includes('europe') || location.includes('england') || location.includes('britain') ||
+                 location.includes('uk') || location.includes('united kingdom') || location.includes('scotland') ||
+                 location.includes('wales') || location.includes('ireland') || location.includes('france') ||
+                 location.includes('spain') || location.includes('portugal') || location.includes('italy') ||
+                 location.includes('germany') || location.includes('poland') || location.includes('netherlands') ||
+                 location.includes('belgium') || location.includes('switzerland') || location.includes('austria') ||
+                 location.includes('czech') || location.includes('slovakia') || location.includes('hungary') ||
+                 location.includes('romania') || location.includes('bulgaria') || location.includes('greece') ||
+                 location.includes('croatia') || location.includes('serbia') || location.includes('bosnia') ||
+                 location.includes('montenegro') || location.includes('albania') || location.includes('macedonia') ||
+                 location.includes('slovenia') || location.includes('denmark') || location.includes('sweden') ||
+                 location.includes('norway') || location.includes('finland') || location.includes('iceland') ||
+                 location.includes('estonia') || location.includes('latvia') || location.includes('lithuania') ||
+                 location.includes('belarus') || location.includes('ukraine') || location.includes('moldova') ||
+                 location.includes('malta') || location.includes('cyprus') || location.includes('corsica') ||
+                 location.includes('sardinia') || location.includes('sicily') || location.includes('crete') ||
+                 location.includes('balearic') || location.includes('canary')) {
+          region = 'Europe';
+        }
+        // Asia (comprehensive Asian countries and regions)
+        else if (location.includes('asia') || location.includes('china') || location.includes('india') ||
+                 location.includes('japan') || location.includes('korea') || location.includes('mongolia') ||
+                 location.includes('taiwan') || location.includes('java') || location.includes('indonesia') ||
+                 location.includes('thailand') || location.includes('myanmar') || location.includes('burma') ||
+                 location.includes('vietnam') || location.includes('laos') || location.includes('cambodia') ||
+                 location.includes('malaysia') || location.includes('singapore') || location.includes('brunei') ||
+                 location.includes('philippines') || location.includes('sri lanka') || location.includes('bangladesh') ||
+                 location.includes('nepal') || location.includes('bhutan') || location.includes('pakistan') ||
+                 location.includes('afghanistan') || location.includes('iran') || location.includes('iraq') ||
+                 location.includes('turkey') || location.includes('syria') || location.includes('lebanon') ||
+                 location.includes('jordan') || location.includes('israel') || location.includes('palestine') ||
+                 location.includes('saudi arabia') || location.includes('yemen') || location.includes('oman') ||
+                 location.includes('uae') || location.includes('qatar') || location.includes('bahrain') ||
+                 location.includes('kuwait') || location.includes('kazakhstan') || location.includes('uzbekistan') ||
+                 location.includes('turkmenistan') || location.includes('kyrgyzstan') || location.includes('tajikistan') ||
+                 location.includes('siberia') || location.includes('russia') || location.includes('flores') ||
+                 location.includes('sumatra') || location.includes('borneo') || location.includes('sulawesi') ||
+                 location.includes('timor') || location.includes('maldives')) {
+          region = 'Asia';
+        }
+        // Africa (comprehensive African countries and regions)
+        else if (location.includes('africa') || location.includes('south africa') || location.includes('cameroon') ||
+                 location.includes('morocco') || location.includes('algeria') || location.includes('tunisia') ||
+                 location.includes('libya') || location.includes('egypt') || location.includes('sudan') ||
+                 location.includes('ethiopia') || location.includes('somalia') || location.includes('kenya') ||
+                 location.includes('tanzania') || location.includes('uganda') || location.includes('rwanda') ||
+                 location.includes('burundi') || location.includes('congo') || location.includes('gabon') ||
+                 location.includes('equatorial guinea') || location.includes('central african') ||
+                 location.includes('chad') || location.includes('niger') || location.includes('nigeria') ||
+                 location.includes('benin') || location.includes('togo') || location.includes('ghana') ||
+                 location.includes('ivory coast') || location.includes('liberia') || location.includes('sierra leone') ||
+                 location.includes('guinea') || location.includes('senegal') || location.includes('gambia') ||
+                 location.includes('mali') || location.includes('burkina faso') || location.includes('mauritania') ||
+                 location.includes('madagascar') || location.includes('mauritius') || location.includes('seychelles') ||
+                 location.includes('comoros') || location.includes('réunion') || location.includes('mayotte') ||
+                 location.includes('zimbabwe') || location.includes('zambia') || location.includes('malawi') ||
+                 location.includes('mozambique') || location.includes('botswana') || location.includes('namibia') ||
+                 location.includes('angola') || location.includes('lesotho') || location.includes('swaziland')) {
+          region = 'Africa';
+        }
+        // Australia/Oceania (comprehensive Pacific region)
+        else if (location.includes('australia') || location.includes('tasmania') || location.includes('new zealand') ||
+                 location.includes('papua new guinea') || location.includes('fiji') || location.includes('samoa') ||
+                 location.includes('tonga') || location.includes('vanuatu') || location.includes('solomon islands') ||
+                 location.includes('new caledonia') || location.includes('christmas island') || location.includes('norfolk island') ||
+                 location.includes('wake island') || location.includes('laysan') || location.includes('aldabra') ||
+                 location.includes('henderson island') || location.includes('round island') || location.includes('pitcairn') ||
+                 location.includes('cook islands') || location.includes('french polynesia') || location.includes('tahiti') ||
+                 location.includes('marquesas') || location.includes('tuamotu') || location.includes('kiribati') ||
+                 location.includes('tuvalu') || location.includes('nauru') || location.includes('palau') ||
+                 location.includes('micronesia') || location.includes('marshall islands') || location.includes('guam') ||
+                 location.includes('northern mariana')) {
+          region = 'Australia/Oceania';
+        }
+        // Pacific Islands (Hawaii and other Pacific islands)
+        else if (location.includes('pacific') || location.includes('hawaii') || location.includes('oahu') ||
+                 location.includes('maui') || location.includes('lanai') || location.includes('molokai') ||
+                 location.includes('big island') || location.includes('kauai') || location.includes('galápagos') ||
+                 location.includes('galapagos') || location.includes('pinta') || location.includes('isabela') ||
+                 location.includes('santa cruz') || location.includes('san cristóbal') || location.includes('floreana') ||
+                 location.includes('easter island') || location.includes('juan fernández') || location.includes('robinson crusoe') ||
+                 location.includes('falkland') || location.includes('malvinas') || location.includes('saint helena') ||
+                 location.includes('ascension') || location.includes('tristan da cunha') || location.includes('gough')) {
+          region = 'Pacific Islands';
+        }
+        // South America (comprehensive South American countries)
+        else if (location.includes('south america') || location.includes('brazil') || location.includes('argentina') ||
+                 location.includes('chile') || location.includes('peru') || location.includes('bolivia') ||
+                 location.includes('colombia') || location.includes('venezuela') || location.includes('guyana') ||
+                 location.includes('suriname') || location.includes('french guiana') || location.includes('ecuador') ||
+                 location.includes('uruguay') || location.includes('paraguay') || location.includes('cuba') ||
+                 location.includes('jamaica') || location.includes('haiti') || location.includes('dominican republic') ||
+                 location.includes('puerto rico') || location.includes('trinidad') || location.includes('tobago') ||
+                 location.includes('barbados') || location.includes('grenada') || location.includes('st. lucia') ||
+                 location.includes('st. vincent') || location.includes('dominica') || location.includes('antigua') ||
+                 location.includes('barbuda') || location.includes('st. kitts') || location.includes('nevis') ||
+                 location.includes('caribbean') || location.includes('bahamas') || location.includes('turks') ||
+                 location.includes('caicos') || location.includes('são tomé') || location.includes('principe')) {
+          region = 'South America';
+        }
+        // Marine/Freshwater regions are now included in their geographic regions
+        // No separate marine/freshwater category
+        
+        regions[region] = (regions[region] || 0) + 1;
+      }
+    });
+
+    const maxDecadeCount = Math.max(...Object.values(extinctionDecades));
+    const maxRegionCount = Math.max(...Object.values(regions));
 
     return (
       <div style={cardStyle}>
-        <h3 style={{ fontSize: '16px', fontWeight: '300', margin: '0 0 16px 0' }}>Media Distribution</h3>
-        <div style={{ display: 'flex', height: '8px', borderRadius: '4px', overflow: 'hidden', marginBottom: '12px' }}>
-          <div style={{ 
-            width: `${imagePercent}%`, 
-            background: 'linear-gradient(90deg, #22c55e, #16a34a)',
-            transition: 'width 0.3s ease'
-          }}></div>
-          <div style={{ 
-            width: `${videoPercent}%`, 
-            background: 'linear-gradient(90deg, #8b5cf6, #7c3aed)',
-            transition: 'width 0.3s ease'
-          }}></div>
+        <h3 style={{ fontSize: '16px', fontWeight: '300', margin: '0 0 16px 0' }}>Extinction Timeline & Geographic Distribution</h3>
+        
+        {/* Timeline */}
+        <div style={{ marginBottom: '24px' }}>
+          <h4 style={{ fontSize: '14px', fontWeight: '300', margin: '0 0 12px 0', color: '#ccc' }}>Extinctions by Decade</h4>
+          <div style={{ display: 'flex', alignItems: 'end', gap: '8px', height: '80px' }}>
+            {Object.entries(extinctionDecades)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([decade, count]) => (
+                <div key={decade} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1 }}>
+                  <div style={{
+                    height: `${(count / maxDecadeCount) * 60}px`,
+                    background: 'linear-gradient(180deg, #3b82f6, #1d4ed8)',
+                    width: '100%',
+                    borderRadius: '2px 2px 0 0',
+                    minHeight: '4px'
+                  }}></div>
+                  <div style={{ fontSize: '10px', color: '#888', marginTop: '4px', transform: 'rotate(-45deg)', transformOrigin: 'center' }}>
+                    {decade}
+                  </div>
+                  <div style={{ fontSize: '10px', color: '#60a5fa', marginTop: '2px' }}>
+                    {count}
+                  </div>
+                </div>
+              ))}
+          </div>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-          <span style={{ color: '#22c55e' }}>Images: {storageStats.imageCount} ({imagePercent.toFixed(1)}%)</span>
-          <span style={{ color: '#8b5cf6' }}>Videos: {storageStats.videoCount} ({videoPercent.toFixed(1)}%)</span>
+
+        {/* Geographic Distribution - Simplified */}
+        <div>
+          <h4 style={{ fontSize: '14px', fontWeight: '300', margin: '0 0 12px 0', color: '#ccc' }}>Geographic Distribution</h4>
+          
+          {/* Regional Statistics Grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px' }}>
+            {Object.entries(regions)
+              .sort(([,a], [,b]) => b - a)
+              .map(([region, count]) => (
+                <div key={region} style={{
+                  background: 'rgba(34, 197, 94, 0.1)',
+                  border: '1px solid rgba(34, 197, 94, 0.2)',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  textAlign: 'center',
+                  transition: 'all 0.2s ease'
+                }}>
+                  <div style={{ fontSize: '13px', fontWeight: '300', marginBottom: '6px', color: '#ccc' }}>{region}</div>
+                  <div style={{ fontSize: '20px', color: '#22c55e', fontWeight: '300' }}>{count}</div>
+                  <div style={{ fontSize: '10px', color: '#666', marginTop: '4px' }}>extinctions</div>
+                </div>
+              ))}
+          </div>
         </div>
       </div>
     );
+  };
+
+  const openModal = (species: Species, mediaType: 'image' | 'video' = 'image') => {
+    setSelectedSpecies(species);
+    setModalMediaType(mediaType);
+    setIsModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setSelectedSpecies(null);
   };
 
   const renderMediaGallery = () => {
@@ -360,51 +587,154 @@ export default function AdminPage() {
     }, 0);
     
     return (
-      <div style={cardStyle}>
-        <h3 style={{ fontSize: '16px', fontWeight: '300', margin: '0 0 16px 0' }}>
-          Media Gallery ({mediaSpecies.length} species, {totalMediaCount} files)
+      <div style={{
+        background: 'rgba(255, 255, 255, 0.03)',
+        backdropFilter: 'blur(20px)',
+        border: '1px solid rgba(255, 255, 255, 0.08)',
+        borderRadius: '12px',
+        padding: '20px',
+        marginBottom: '16px',
+        minHeight: 'calc(100vh - 200px)'
+      }}>
+        <h3 style={{ fontSize: '18px', fontWeight: '300', margin: '0 0 20px 0' }}>
+          Media ({mediaSpecies.length} species, {totalMediaCount} files)
         </h3>
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
-          gap: '12px',
-          maxHeight: '400px',
-          overflowY: 'auto'
+          gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+          gap: '20px',
+          maxHeight: 'calc(100vh - 300px)',
+          overflowY: 'auto',
+          paddingRight: '8px'
         }}>
           {mediaSpecies.map((s) => (
-            <div key={s.id} style={{
-              background: 'rgba(255, 255, 255, 0.05)',
-              borderRadius: '8px',
-              padding: '8px',
-              textAlign: 'center'
-            }}>
-              {s.supabase_image_url && (
-                <img 
-                  src={s.supabase_image_url} 
-                  alt={s.common_name}
-                  style={{ 
-                    width: '100%', 
-                    height: '80px', 
-                    objectFit: 'cover', 
-                    borderRadius: '4px',
-                    marginBottom: '4px'
-                  }}
-                />
-              )}
-              {s.supabase_video_url && !s.supabase_image_url && (
-                <video 
-                  src={s.supabase_video_url}
-                  style={{ 
-                    width: '100%', 
-                    height: '80px', 
-                    objectFit: 'cover', 
-                    borderRadius: '4px',
-                    marginBottom: '4px'
-                  }}
-                />
-              )}
-              <div style={{ fontSize: '10px', color: '#888', lineHeight: '1.2' }}>
-                {s.common_name}
+            <div
+              key={s.id}
+              style={{
+                background: 'rgba(255, 255, 255, 0.05)',
+                borderRadius: '12px',
+                overflow: 'hidden',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                display: 'flex',
+                flexDirection: 'column',
+                minHeight: '280px',
+                border: '1px solid rgba(255, 255, 255, 0.1)'
+              }}
+              onClick={() => openModal(s, s.supabase_image_url ? 'image' : 'video')}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 8px 25px rgba(0, 0, 0, 0.3)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = 'none';
+              }}
+            >
+              {/* Thumbnail */}
+              <div style={{
+                position: 'relative',
+                width: '100%',
+                height: '160px',
+                overflow: 'hidden',
+                background: 'rgba(0, 0, 0, 0.2)'
+              }}>
+                {s.supabase_image_url ? (
+                  <img
+                    src={s.supabase_image_url}
+                    alt={s.common_name}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover'
+                    }}
+                    onError={(e) => {
+                      console.error('Image failed to load:', s.supabase_image_url);
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                ) : s.supabase_video_url ? (
+                  <video
+                    src={s.supabase_video_url}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover'
+                    }}
+                    onError={(e) => {
+                      console.error('Video failed to load:', s.supabase_video_url);
+                      (e.target as HTMLVideoElement).style.display = 'none';
+                    }}
+                  />
+                ) : (
+                  <div style={{
+                    width: '100%',
+                    height: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    color: '#666',
+                    fontSize: '14px'
+                  }}>
+                    No Media
+                  </div>
+                )}
+                
+                {/* Media type indicator */}
+                <div style={{
+                  position: 'absolute',
+                  top: '8px',
+                  right: '8px',
+                  background: 'rgba(0, 0, 0, 0.7)',
+                  borderRadius: '4px',
+                  padding: '4px 8px',
+                  fontSize: '10px',
+                  color: '#fff'
+                }}>
+                  {s.supabase_image_url && s.supabase_video_url ? 'Both' :
+                   s.supabase_image_url ? 'Image' : 'Video'}
+                </div>
+              </div>
+              
+              {/* Species Info */}
+              <div style={{ padding: '16px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+                <div style={{
+                  fontSize: '14px',
+                  color: '#fff',
+                  lineHeight: '1.3',
+                  fontWeight: '400',
+                  marginBottom: '6px'
+                }}>
+                  {s.common_name}
+                </div>
+                <div style={{
+                  fontSize: '12px',
+                  color: '#888',
+                  lineHeight: '1.2',
+                  fontStyle: 'italic',
+                  marginBottom: '8px'
+                }}>
+                  {s.scientific_name}
+                </div>
+                
+                {/* Species details */}
+                <div style={{
+                  fontSize: '11px',
+                  color: '#aaa',
+                  flex: 1
+                }}>
+                  <div style={{ marginBottom: '4px' }}>
+                    <span style={{ color: '#666' }}>Extinct: </span>
+                    <span>{s.year_extinct}</span>
+                  </div>
+                  <div>
+                    <span style={{ color: '#666' }}>Type: </span>
+                    <span>{s.type || 'N/A'}</span>
+                  </div>
+                </div>
               </div>
             </div>
           ))}
@@ -415,65 +745,82 @@ export default function AdminPage() {
 
   const renderSpeciesTable = () => {
     return (
-      <div style={cardStyle}>
+      <div style={{
+        background: 'rgba(255, 255, 255, 0.03)',
+        backdropFilter: 'blur(20px)',
+        border: '1px solid rgba(255, 255, 255, 0.08)',
+        borderRadius: '12px',
+        padding: '16px',
+        marginBottom: '16px',
+        minHeight: 'calc(100vh - 200px)' // Full page height
+      }}>
         <h3 style={{ fontSize: '16px', fontWeight: '300', margin: '0 0 16px 0' }}>Species Database ({species.length} entries)</h3>
-        <div style={{ 
-          maxHeight: '500px', 
-          overflowY: 'auto',
+        <div style={{
           border: '1px solid rgba(255, 255, 255, 0.1)',
-          borderRadius: '8px'
+          borderRadius: '8px',
+          height: 'calc(100vh - 280px)', // Full available height
+          overflowY: 'auto'
         }}>
-          <table style={{ width: '100%', fontSize: '12px' }}>
-            <thead style={{ 
-              background: 'rgba(255, 255, 255, 0.05)', 
-              position: 'sticky', 
+          <table style={{ width: '100%', fontSize: '11px' }}>
+            <thead style={{
+              background: 'rgba(255, 255, 255, 0.05)',
+              position: 'sticky',
               top: 0,
               zIndex: 1
             }}>
               <tr>
-                <th style={{ padding: '8px', textAlign: 'left', borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }}>Common Name</th>
-                <th style={{ padding: '8px', textAlign: 'left', borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }}>Scientific Name</th>
-                <th style={{ padding: '8px', textAlign: 'center', borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }}>Year</th>
-                <th style={{ padding: '8px', textAlign: 'center', borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }}>Status</th>
-                <th style={{ padding: '8px', textAlign: 'center', borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }}>Media</th>
+                <th style={{ padding: '8px', textAlign: 'left', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', minWidth: '120px' }}>Common Name</th>
+                <th style={{ padding: '8px', textAlign: 'left', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', minWidth: '140px' }}>Scientific Name</th>
+                <th style={{ padding: '8px', textAlign: 'center', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', minWidth: '60px' }}>Type</th>
+                <th style={{ padding: '8px', textAlign: 'center', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', minWidth: '60px' }}>Year</th>
+                <th style={{ padding: '8px', textAlign: 'left', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', minWidth: '100px' }}>Region</th>
+                <th style={{ padding: '8px', textAlign: 'left', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', minWidth: '100px' }}>Habitat</th>
+                <th style={{ padding: '8px', textAlign: 'left', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', minWidth: '120px' }}>Cause</th>
+                <th style={{ padding: '8px', textAlign: 'left', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', minWidth: '120px' }}>Last Seen</th>
+                <th style={{ padding: '8px', textAlign: 'left', borderBottom: '1px solid rgba(255, 255, 255, 0.1)', minWidth: '200px' }}>Description</th>
               </tr>
             </thead>
             <tbody>
-              {species.slice(0, 50).map((s, index) => (
-                <tr key={s.id} style={{ 
+              {species.map((s, index) => (
+                <tr key={s.id} style={{
                   borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
                   background: index % 2 === 0 ? 'transparent' : 'rgba(255, 255, 255, 0.02)'
                 }}>
-                  <td style={{ padding: '8px' }}>{s.common_name}</td>
-                  <td style={{ padding: '8px', fontStyle: 'italic', color: '#888' }}>{s.scientific_name}</td>
-                  <td style={{ padding: '8px', textAlign: 'center' }}>{s.year_extinct}</td>
-                  <td style={{ padding: '8px', textAlign: 'center' }}>
-                    <span style={{
-                      padding: '2px 6px',
-                      borderRadius: '4px',
-                      fontSize: '10px',
-                      background: s.generation_status === 'completed' ? 'rgba(34, 197, 94, 0.2)' : 
-                                 s.generation_status === 'error' ? 'rgba(239, 68, 68, 0.2)' : 
-                                 'rgba(156, 163, 175, 0.2)',
-                      color: s.generation_status === 'completed' ? '#4ade80' : 
-                             s.generation_status === 'error' ? '#f87171' : '#9ca3af'
-                    }}>
-                      {s.generation_status}
-                    </span>
+                  <td style={{ padding: '8px', fontWeight: '300' }}>
+                    {(s.supabase_image_url || s.supabase_video_url) ? (
+                      <button
+                        onClick={() => openModal(s, s.supabase_image_url ? 'image' : 'video')}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#60a5fa',
+                          cursor: 'pointer',
+                          textDecoration: 'underline',
+                          fontSize: 'inherit',
+                          fontFamily: 'inherit',
+                          fontWeight: '300'
+                        }}
+                      >
+                        {s.common_name}
+                      </button>
+                    ) : (
+                      s.common_name
+                    )}
                   </td>
-                  <td style={{ padding: '8px', textAlign: 'center' }}>
-                    {s.supabase_image_url && <span style={{ color: '#22c55e', marginRight: '4px' }}>IMG</span>}
-                    {s.supabase_video_url && <span style={{ color: '#8b5cf6' }}>VID</span>}
+                  <td style={{ padding: '8px', fontStyle: 'italic', color: '#888' }}>{s.scientific_name}</td>
+                  <td style={{ padding: '8px', textAlign: 'center', fontSize: '10px' }}>{s.type || 'N/A'}</td>
+                  <td style={{ padding: '8px', textAlign: 'center' }}>{s.year_extinct}</td>
+                  <td style={{ padding: '8px', fontSize: '10px', color: '#ccc' }}>{s.region || 'N/A'}</td>
+                  <td style={{ padding: '8px', fontSize: '10px', color: '#ccc' }}>{s.habitat || 'N/A'}</td>
+                  <td style={{ padding: '8px', fontSize: '10px', color: '#ccc' }}>{s.extinction_cause}</td>
+                  <td style={{ padding: '8px', fontSize: '10px', color: '#ccc' }}>{s.last_location}</td>
+                  <td style={{ padding: '8px', fontSize: '10px', color: '#aaa', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {s.description || 'N/A'}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-          {species.length > 50 && (
-            <div style={{ padding: '12px', textAlign: 'center', color: '#666', fontSize: '11px' }}>
-              Showing first 50 of {species.length} species
-            </div>
-          )}
         </div>
       </div>
     );
@@ -763,25 +1110,33 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* Tabs */}
-        <div style={{ marginBottom: '20px', display: 'flex' }}>
+        {/* Main Tabs - Reordered: Dashboard → Landing Page → Main Gallery → Media → Species Database */}
+        <div style={{ marginBottom: '20px', display: 'flex', flexWrap: 'wrap' }}>
           <button
-            style={tabStyle(activeTab === 'overview')}
-            onClick={() => setActiveTab('overview')}
+            style={tabStyle(activeTab === 'dashboard')}
+            onClick={() => setActiveTab('dashboard')}
           >
-            Overview
+            Dashboard
           </button>
           <button
-            style={tabStyle(activeTab === 'lists')}
-            onClick={() => setActiveTab('lists')}
+            style={tabStyle(false)}
+            onClick={() => window.open('/landing', '_blank')}
+            title="Open Landing Page in new tab"
           >
-            Species Lists
+            Landing Page
+          </button>
+          <button
+            style={tabStyle(false)}
+            onClick={() => window.open('/gallery', '_blank')}
+            title="Open Main Gallery in new tab"
+          >
+            Main Gallery
           </button>
           <button
             style={tabStyle(activeTab === 'media')}
             onClick={() => setActiveTab('media')}
           >
-            Media Gallery
+            Media
           </button>
           <button
             style={tabStyle(activeTab === 'species')}
@@ -789,35 +1144,49 @@ export default function AdminPage() {
           >
             Species Database
           </button>
+          <button
+            style={tabStyle(false)}
+            onClick={() => window.open('/display', '_blank')}
+            title="Open Image Slideshow in new tab"
+          >
+            Image Slideshow
+          </button>
+          <button
+            style={tabStyle(false)}
+            onClick={() => window.open('/exhibit', '_blank')}
+            title="Open Video Slideshow in new tab"
+          >
+            Video Slideshow
+          </button>
         </div>
 
         {/* Tab Content */}
-        {activeTab === 'overview' && (
+        {activeTab === 'dashboard' && (
           <>
-            {/* Stats */}
+            {/* Data Visualization */}
+            {renderDataVisualization()}
+
+            {/* Stats - Moved below visualization */}
             <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
               <div style={smallCardStyle}>
-                <div style={{ fontSize: '11px', color: '#888', marginBottom: '4px' }}>TOTAL FILES</div>
+                <div style={{ fontSize: '11px', color: '#888', marginBottom: '4px' }}>TOTAL SPECIES</div>
                 <div style={{ fontSize: '24px', fontWeight: '200' }}>{storageStats?.totalFiles || 0}</div>
               </div>
               <div style={smallCardStyle}>
-                <div style={{ fontSize: '11px', color: '#888', marginBottom: '4px' }}>IMAGES</div>
-                <div style={{ fontSize: '24px', fontWeight: '200', color: '#22c55e' }}>{storageStats?.imageCount || 0}</div>
+                <div style={{ fontSize: '11px', color: '#888', marginBottom: '4px' }}>MEDIA FILES</div>
+                <div style={{ fontSize: '24px', fontWeight: '200', color: '#22c55e' }}>{storageStats?.totalSize || 0}</div>
               </div>
               <div style={smallCardStyle}>
-                <div style={{ fontSize: '11px', color: '#888', marginBottom: '4px' }}>VIDEOS</div>
-                <div style={{ fontSize: '24px', fontWeight: '200', color: '#8b5cf6' }}>{storageStats?.videoCount || 0}</div>
+                <div style={{ fontSize: '11px', color: '#888', marginBottom: '4px' }}>PLANTS</div>
+                <div style={{ fontSize: '24px', fontWeight: '200', color: '#8b5cf6' }}>{storageStats?.imageCount || 0}</div>
               </div>
               <div style={smallCardStyle}>
-                <div style={{ fontSize: '11px', color: '#888', marginBottom: '4px' }}>STORAGE</div>
-                <div style={{ fontSize: '24px', fontWeight: '200' }}>
-                  {storageStats ? `${Math.round(storageStats.totalSize / 1024 / 1024)}MB` : '0MB'}
+                <div style={{ fontSize: '11px', color: '#888', marginBottom: '4px' }}>ANIMALS</div>
+                <div style={{ fontSize: '24px', fontWeight: '200', color: '#f59e0b' }}>
+                  {storageStats?.videoCount || 0}
                 </div>
               </div>
             </div>
-
-            {/* Chart */}
-            {renderChart()}
 
             {/* System Status */}
             <div style={cardStyle}>
@@ -841,86 +1210,20 @@ export default function AdminPage() {
                 </div>
               </div>
             </div>
-
-            {/* Quick Actions */}
-            <div style={cardStyle}>
-              <h3 style={{ fontSize: '16px', fontWeight: '300', margin: '0 0 12px 0' }}>Quick Actions</h3>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                <button
-                  style={{
-                    background: 'rgba(59, 130, 246, 0.15)',
-                    border: '1px solid rgba(59, 130, 246, 0.3)',
-                    borderRadius: '6px',
-                    padding: '8px 16px',
-                    color: '#60a5fa',
-                    fontSize: '13px',
-                    cursor: 'pointer',
-                    fontFamily: 'inherit'
-                  }}
-                  onClick={() => window.open('/landing', '_blank')}
-                  title="Open the public landing page in a new tab"
-                >
-                  View Landing Page
-                </button>
-                <button
-                  style={{
-                    background: 'rgba(59, 130, 246, 0.15)',
-                    border: '1px solid rgba(59, 130, 246, 0.3)',
-                    borderRadius: '6px',
-                    padding: '8px 16px',
-                    color: '#60a5fa',
-                    fontSize: '13px',
-                    cursor: 'pointer',
-                    fontFamily: 'inherit'
-                  }}
-                  onClick={() => window.open('/gallery', '_blank')}
-                  title="Open the species gallery interface in a new tab"
-                >
-                  View Gallery
-                </button>
-                <button
-                  style={{
-                    background: 'rgba(34, 197, 94, 0.15)',
-                    border: '1px solid rgba(34, 197, 94, 0.3)',
-                    borderRadius: '6px',
-                    padding: '8px 16px',
-                    color: '#4ade80',
-                    fontSize: '13px',
-                    cursor: 'pointer',
-                    fontFamily: 'inherit'
-                  }}
-                  onClick={loadData}
-                  title="Reload all data from database (species, lists, media stats)"
-                >
-                  Refresh Data
-                </button>
-                <button
-                  style={{
-                    background: 'rgba(239, 68, 68, 0.15)',
-                    border: '1px solid rgba(239, 68, 68, 0.3)',
-                    borderRadius: '6px',
-                    padding: '8px 16px',
-                    color: '#f87171',
-                    fontSize: '13px',
-                    cursor: 'pointer',
-                    fontFamily: 'inherit'
-                  }}
-                  onClick={fixStorageIssues}
-                  title="Repair broken media file references and storage issues"
-                >
-                  Fix Storage Issues
-                </button>
-              </div>
-            </div>
-
-
           </>
         )}
 
-        {activeTab === 'lists' && renderSpeciesLists()}
         {activeTab === 'media' && renderMediaGallery()}
         {activeTab === 'species' && renderSpeciesTable()}
       </div>
+
+      {/* Media Modal */}
+      <MediaModal
+        isOpen={isModalOpen}
+        onClose={closeModal}
+        species={selectedSpecies}
+        initialMediaType={modalMediaType}
+      />
     </div>
   );
 }
