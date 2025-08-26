@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { RealTimeNotifications } from '@/components/RealTimeNotifications';
 import { useRealTimeUpdates } from '@/hooks/useRealTimeUpdates';
+import { useGalleryAnalytics } from '@/hooks/useGalleryAnalytics';
 // import { useAutoErrorRecovery } from '@/hooks/useAutoErrorRecovery';
 
 interface Species {
@@ -66,6 +67,9 @@ export default function GalleryPage() {
 
   // Real-time updates hook
   const { lastUpdate } = useRealTimeUpdates();
+  
+  // Analytics hook
+  const analytics = useGalleryAnalytics();
 
   // Auto error recovery disabled - no longer needed for exhibition
   // const { stats: recoveryStats, manualRecovery } = useAutoErrorRecovery({
@@ -339,14 +343,21 @@ export default function GalleryPage() {
           // Check if we should select a random species (from landing page)
           if (selectRandomOnLoad) {
             const randomIndex = Math.floor(Math.random() * speciesList.length);
-            setSelectedSpecies(speciesList[randomIndex]);
+            const randomSpecies = speciesList[randomIndex];
+            setSelectedSpecies(randomSpecies);
             setSelectRandomOnLoad(false); // Reset the flag
-            console.log(`Selected random species: ${speciesList[randomIndex].common_name}`);
+            console.log(`Selected random species: ${randomSpecies.common_name}`);
+            // Track random species selection from landing page
+            analytics.trackGalleryNavigation('random');
+            analytics.trackSpeciesView(randomSpecies.common_name, randomSpecies.id);
           } else {
             // Always start with a random species for better user experience
             const randomIndex = Math.floor(Math.random() * speciesList.length);
-            setSelectedSpecies(speciesList[randomIndex]);
-            console.log(`Selected random species on load: ${speciesList[randomIndex].common_name}`);
+            const randomSpecies = speciesList[randomIndex];
+            setSelectedSpecies(randomSpecies);
+            console.log(`Selected random species on load: ${randomSpecies.common_name}`);
+            // Track initial species view
+            analytics.trackSpeciesView(randomSpecies.common_name, randomSpecies.id);
           }
         } else {
           console.warn('No species found in database');
@@ -874,6 +885,10 @@ export default function GalleryPage() {
                     
                     setSelectedSpecies(spec);
                     
+                    // Track species selection
+                    analytics.trackGalleryNavigation('species_select');
+                    analytics.trackSpeciesView(spec.common_name, spec.id);
+                    
                     // Restore scroll position after a brief delay to allow re-render
                     setTimeout(() => {
                       if (container) {
@@ -1162,6 +1177,8 @@ export default function GalleryPage() {
                               autoPlay
                               loop
                               muted
+                              onPlay={() => analytics.trackMediaInteraction(selectedSpecies.common_name, 'video', 'play')}
+                              onPause={() => analytics.trackMediaInteraction(selectedSpecies.common_name, 'video', 'pause')}
                               style={{
                                 maxWidth: '100%',
                                 maxHeight: '100%',
@@ -1207,7 +1224,16 @@ export default function GalleryPage() {
                           }}>
                             {(speciesMedia.images.length > 0 || getBestImageUrl(selectedSpecies)) && (
                               <button
-                                onClick={() => setSelectedMedia('image')}
+                                onClick={() => {
+                                  const previousMedia = selectedMedia;
+                                  setSelectedMedia('image');
+                                  // Track media type switch
+                                  if (previousMedia !== 'image') {
+                                    analytics.trackMediaTypeSwitch(selectedSpecies.common_name, previousMedia, 'image');
+                                  }
+                                  // Track media interaction
+                                  analytics.trackMediaInteraction(selectedSpecies.common_name, 'image', 'view');
+                                }}
                                 style={{
                                   width: '80px',
                                   height: '55px',
@@ -1235,7 +1261,16 @@ export default function GalleryPage() {
                             )}
                             {(speciesMedia.videos.length > 0 || getBestVideoUrl(selectedSpecies)) && (
                               <button
-                                onClick={() => setSelectedMedia('video')}
+                                onClick={() => {
+                                  const previousMedia = selectedMedia;
+                                  setSelectedMedia('video');
+                                  // Track media type switch
+                                  if (previousMedia !== 'video') {
+                                    analytics.trackMediaTypeSwitch(selectedSpecies.common_name, previousMedia, 'video');
+                                  }
+                                  // Track media interaction
+                                  analytics.trackMediaInteraction(selectedSpecies.common_name, 'video', 'view');
+                                }}
                                 style={{
                                   width: '80px',
                                   height: '55px',
@@ -1294,6 +1329,8 @@ export default function GalleryPage() {
                                 if (currentIndex > 0) {
                                   const prevImage = sortedImages[currentIndex - 1];
                                   handleImageVersionChange(prevImage.version, prevImage.url);
+                                  // Track navigation
+                                  analytics.trackGalleryNavigation('previous');
                                 }
                               }}
                               disabled={(() => {
@@ -1326,6 +1363,8 @@ export default function GalleryPage() {
                                 if (currentIndex < sortedImages.length - 1) {
                                   const nextImage = sortedImages[currentIndex + 1];
                                   handleImageVersionChange(nextImage.version, nextImage.url);
+                                  // Track navigation
+                                  analytics.trackGalleryNavigation('next');
                                 }
                               }}
                               disabled={(() => {
@@ -1368,6 +1407,8 @@ export default function GalleryPage() {
                                 if (currentIndex > 0) {
                                   const prevVideo = sortedVideos[currentIndex - 1];
                                   handleVideoVersionChange(prevVideo.version, prevVideo.url);
+                                  // Track navigation
+                                  analytics.trackGalleryNavigation('previous');
                                 }
                               }}
                               disabled={(() => {
@@ -1403,6 +1444,8 @@ export default function GalleryPage() {
                                 if (currentIndex < sortedVideos.length - 1) {
                                   const nextVideo = sortedVideos[currentIndex + 1];
                                   handleVideoVersionChange(nextVideo.version, nextVideo.url);
+                                  // Track navigation
+                                  analytics.trackGalleryNavigation('next');
                                 }
                               }}
                               disabled={(() => {
