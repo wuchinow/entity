@@ -626,11 +626,11 @@ export default function GalleryPage() {
           }
           .species-list {
             width: 100% !important;
-            height: 280px !important;
+            height: 300px !important;
             order: 2 !important;
           }
           .species-list-scroll {
-            max-height: 230px !important;
+            max-height: 250px !important;
           }
           .main-display {
             order: 1 !important;
@@ -646,34 +646,61 @@ export default function GalleryPage() {
           
           /* Smaller font sizes for mobile */
           .mobile-species-title {
-            font-size: 22px !important;
-            line-height: 1.2 !important;
-            margin-bottom: 8px !important;
+            font-size: 20px !important;
+            line-height: 1.1 !important;
+            margin-bottom: 4px !important;
           }
           
           .mobile-species-scientific {
-            font-size: 14px !important;
-            margin-bottom: 12px !important;
+            font-size: 13px !important;
+            margin-bottom: 8px !important;
           }
           
           .mobile-species-details {
-            font-size: 13px !important;
+            font-size: 12px !important;
             text-align: left !important;
-            line-height: 1.4 !important;
+            line-height: 1.3 !important;
           }
           
           .mobile-species-details > div {
-            margin-bottom: 6px !important;
+            margin-bottom: 4px !important;
           }
           
           /* Reduce padding around media for more space */
           .mobile-media-container {
-            padding: 15px !important;
+            padding: 10px !important;
+            max-height: calc(100vh - 250px) !important;
           }
           
           /* Reduce header padding */
           .mobile-header-section {
-            padding: 20px !important;
+            padding: 15px !important;
+          }
+          
+          /* Optimize Entity v1.0 section for mobile */
+          .mobile-entity-title {
+            font-size: 18px !important;
+          }
+          
+          .mobile-entity-subtitle {
+            font-size: 10px !important;
+            margin-top: 2px !important;
+          }
+          
+          .mobile-entity-buttons {
+            padding: 8px 12px !important;
+            min-width: 40px !important;
+            height: 36px !important;
+          }
+          
+          .mobile-entity-section {
+            padding: 15px !important;
+          }
+          
+          /* Fix media display to prevent cropping */
+          .mobile-media-display {
+            max-width: calc(100vw - 20px) !important;
+            max-height: calc(100vh - 280px) !important;
           }
         }
         
@@ -701,14 +728,14 @@ export default function GalleryPage() {
         }}>
           
           {/* Header with Entity title and navigation */}
-          <div style={{
+          <div className="mobile-entity-section" style={{
             padding: '20px',
             borderBottom: '1px solid rgba(255,255,255,0.1)',
             background: 'rgba(0,0,0,0.2)'
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <h1 style={{
+                <h1 className="mobile-entity-title" style={{
                   margin: 0,
                   fontSize: '24px',
                   fontWeight: '300',
@@ -717,7 +744,7 @@ export default function GalleryPage() {
                 }}>
                   Entity v1.0
                 </h1>
-                <p style={{
+                <p className="mobile-entity-subtitle" style={{
                   margin: '4px 0 0 0',
                   fontSize: '12px',
                   color: '#888',
@@ -730,6 +757,7 @@ export default function GalleryPage() {
               <div style={{ display: 'flex', gap: '12px' }}>
                 <button
                   onClick={() => window.location.href = '/landing'}
+                  className="mobile-entity-buttons"
                   style={{
                     background: 'rgba(255,255,255,0.1)',
                     border: '1px solid rgba(255,255,255,0.2)',
@@ -757,6 +785,7 @@ export default function GalleryPage() {
                 
                 <button
                   onClick={() => window.location.href = '/admin'}
+                  className="mobile-entity-buttons"
                   style={{
                     background: 'rgba(255,255,255,0.1)',
                     border: '1px solid rgba(255,255,255,0.2)',
@@ -987,7 +1016,7 @@ export default function GalleryPage() {
                     <h1 className="mobile-species-title" style={{ margin: 0, fontSize: '28px', fontWeight: '300', marginBottom: '10px' }}>
                       {selectedSpecies.common_name}
                     </h1>
-                    <p className="mobile-species-scientific" style={{ margin: 0, fontSize: '16px', color: '#ccc', fontStyle: 'italic' }}>
+                    <p className="mobile-species-scientific" style={{ margin: 0, fontSize: '16px', color: '#ccc', fontStyle: 'italic', marginBottom: '16px' }}>
                       {selectedSpecies.scientific_name}
                     </p>
                   </div>
@@ -1071,7 +1100,7 @@ export default function GalleryPage() {
                     )}
                     
                     {!loadingMedia && (
-                      <div style={{
+                      <div className="mobile-media-display" style={{
                         flex: 1,
                         display: 'flex',
                         alignItems: 'center',
